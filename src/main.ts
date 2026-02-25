@@ -1,35 +1,20 @@
 // src/main.ts
-/* eslint-disable no-console */
+/* =========================================================
+   Calendar Reservation System (Demo Mode / No Network)
+   - All data lives in localStorage (per-browser)
+   - Seed data creates "満枠/一部空き"演出を強める
+   - UI/HTML/CSS are kept as-is (from your original index.html)
+   ========================================================= */
 
-/**
- * Tokuyama Street Live Space Reservation (DEMO)
- * - No GAS / No external network
- * - Uses localStorage only
- * - Seed data creates: weekend-open, weekday-closed, full/partial highlights
- * - Modern-ish TS: typed state, no inline onclick, event listeners + delegation
- */
+type SlotId = 'A' | 'B' | 'C' | 'D';
 
-type SlotId = "A" | "B" | "C" | "D";
-type ArtistStatus = "approved" | "pending";
-
-type Reservation = {
-  id: string;
-  dateKey: string; // YYYY-MM-DD
-  slotId: SlotId;
-  artistId: string;
-  artistName: string; // display name
-  name: string; // real name
-  phone: string;
-  lineId: string;
-  note?: string;
-  createdAt: string; // ISO
-};
+type ArtistStatus = 'pending' | 'approved';
 
 type Artist = {
   id: string;
   name: string;
   phone: string;
-  artist: string; // stage name
+  artist: string;
   genre?: string;
   instagram?: string;
   tiktok?: string;
@@ -43,1191 +28,1039 @@ type Artist = {
   createdAt: string;
 };
 
-type ClosedSlotKey = `${string}_${SlotId}`; // dateKey_slotId
+type Reservation = {
+  id: string;
+  dateKey: string; // YYYY-MM-DD
+  slotId: SlotId;
+  artistId: string;
+  name: string;
+  artistName: string;
+  phone: string;
+  lineId: string;
+  note?: string;
+  createdAt: string;
+};
 
-type Store = {
+type DemoState = {
   version: number;
   reservations: Record<string, Reservation>;
   artists: Record<string, Artist>;
-  closedSlots: Record<string, true>;
+  closedSlots: Record<string, true>; // key = `${dateKey}_${slotId}`
 };
 
-const APP = {
-  STORE_KEY: "tokuyama-demo-store-v1",
-  SEED_DONE_KEY: "tokuyama-demo-seeded-v1",
-  VERSION: 1,
-  LIMIT_MONTHS_AHEAD: 3,
-  // DEMO admin password (do NOT use in production; front-only auth is insecure)
-  ADMIN_PASSWORD: "demo-admin",
-} as const;
+const APP_VERSION = 1;
+const STORAGE_KEY = 'calendar-reservation-system.demo.v1';
 
-const SLOTS: ReadonlyArray<{ id: SlotId; time: string; label: string }> = [
-  { id: "A", time: "17:00〜18:00", label: "1部" },
-  { id: "B", time: "18:00〜19:00", label: "2部" },
-  { id: "C", time: "19:00〜20:00", label: "3部" },
-  { id: "D", time: "20:00〜21:00", label: "4部" },
+const SLOTS: Array<{ id: SlotId; time: string; label: string }> = [
+  { id: 'A', time: '17:00〜18:00', label: '1部' },
+  { id: 'B', time: '18:00〜19:00', label: '2部' },
+  { id: 'C', time: '19:00〜20:00', label: '3部' },
+  { id: 'D', time: '20:00〜21:00', label: '4部' },
 ];
 
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"] as const;
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'] as const;
 const MONTHS = [
-  "January","February","March","April","May","June",
-  "July","August","September","October","November","December",
-] as const;
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December'
+];
 
-type TabId = "calendar" | "slots" | "artists" | "reservations";
+const LIMIT_MONTHS_AHEAD = 3;
 
-type SelectedDate = { y: number; m: number; d: number; dow: number };
-type UIState = {
-  currentYear: number;
-  currentMonth: number; // 0-11
-  selectedDate: SelectedDate | null;
-  selectedSlotId: SlotId | null;
-  isAdmin: boolean;
-  foundArtistId: string | null;
-  pendingConfirm:
-    | null
-    | { type: "reserve"; reservationDraft: Omit<Reservation, "id" | "createdAt"> }
-    | { type: "cancel"; reservationId: string };
-};
-
-const ui: UIState = {
-  currentYear: new Date().getFullYear(),
-  currentMonth: new Date().getMonth(),
-  selectedDate: null,
-  selectedSlotId: null,
-  isAdmin: false,
-  foundArtistId: null,
-  pendingConfirm: null,
-};
-
-let store: Store = loadStore();
-
-/* ---------------------------
- * DOM helpers
- * --------------------------- */
-function $(sel: string): HTMLElement {
-  const el = document.querySelector(sel);
-  if (!el) throw new Error(`Missing element: ${sel}`);
-  return el as HTMLElement;
+// ============================
+// DOM helpers
+// ============================
+function el<T extends HTMLElement>(id: string): T {
+  const node = document.getElementById(id);
+  if (!node) throw new Error(`Missing element: #${id}`);
+  return node as T;
 }
-function byId<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-  if (!el) throw new Error(`Missing element: #${id}`);
-  return el as T;
-}
+function cap(s: string) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-const el = {
-  // Tabs & pages
-  tabCalendar: byId<HTMLButtonElement>("tabCalendar"),
-  tabSlots: byId<HTMLButtonElement>("tabSlots"),
-  tabArtists: byId<HTMLButtonElement>("tabArtists"),
-  tabReservations: byId<HTMLButtonElement>("tabReservations"),
-  pageCalendar: byId<HTMLDivElement>("pageCalendar"),
-  pageSlots: byId<HTMLDivElement>("pageSlots"),
-  pageArtists: byId<HTMLDivElement>("pageArtists"),
-  pageReservations: byId<HTMLDivElement>("pageReservations"),
-  pendingBadge: byId<HTMLSpanElement>("pendingBadge"),
-
-  // Header
-  adminBtn: byId<HTMLButtonElement>("adminBtn"),
-
-  // Calendar
-  calMonthLabel: byId<HTMLDivElement>("calMonthLabel"),
-  btnPrevMonth: byId<HTMLButtonElement>("btnPrevMonth"),
-  btnNextMonth: byId<HTMLButtonElement>("btnNextMonth"),
-  calGrid: byId<HTMLDivElement>("calGrid"),
-
-  // Modal
-  modalOverlay: byId<HTMLDivElement>("modalOverlay"),
-  modalDateLabel: byId<HTMLDivElement>("modalDateLabel"),
-  modalDateSub: byId<HTMLDivElement>("modalDateSub"),
-  slotList: byId<HTMLDivElement>("slotList"),
-  formSection: byId<HTMLDivElement>("formSection"),
-
-  // Steps
-  step1: byId<HTMLDivElement>("step1"),
-  step2: byId<HTMLDivElement>("step2"),
-  step3: byId<HTMLDivElement>("step3"),
-  stepLine1: byId<HTMLDivElement>("stepLine1"),
-  stepLine2: byId<HTMLDivElement>("stepLine2"),
-  step1Area: byId<HTMLDivElement>("step1Area"),
-  step2Area: byId<HTMLDivElement>("step2Area"),
-
-  // Lookup / Found
-  lookupInput: byId<HTMLInputElement>("lookupInput"),
-  artistFound: byId<HTMLDivElement>("artistFound"),
-  artistNotFound: byId<HTMLDivElement>("artistNotFound"),
-  foundName: byId<HTMLDivElement>("foundName"),
-  foundSub: byId<HTMLDivElement>("foundSub"),
-  foundBadge: byId<HTMLDivElement>("foundBadge"),
-  btnProceed: byId<HTMLButtonElement>("btnProceed"),
-
-  // New artist form
-  newArtistForm: byId<HTMLDivElement>("newArtistForm"),
-  pendingInline: byId<HTMLDivElement>("pendingInline"),
-  fName: byId<HTMLInputElement>("fName"),
-  fPhone: byId<HTMLInputElement>("fPhone"),
-  fArtist: byId<HTMLInputElement>("fArtist"),
-  fGenre: byId<HTMLInputElement>("fGenre"),
-  fInstagram: byId<HTMLInputElement>("fInstagram"),
-  fTiktok: byId<HTMLInputElement>("fTiktok"),
-  fYoutube: byId<HTMLInputElement>("fYoutube"),
-  fTwitter: byId<HTMLInputElement>("fTwitter"),
-  fVideoUrl: byId<HTMLInputElement>("fVideoUrl"),
-  fVideoLineId: byId<HTMLInputElement>("fVideoLineId"),
-  fLineId: byId<HTMLInputElement>("fLineId"),
-  fNote: byId<HTMLTextAreaElement>("fNote"),
-
-  // Step2
-  step2ArtistName: byId<HTMLDivElement>("step2ArtistName"),
-  step2ArtistSub: byId<HTMLDivElement>("step2ArtistSub"),
-  fReserveNote: byId<HTMLTextAreaElement>("fReserveNote"),
-
-  // Lists (admin)
-  artistList: byId<HTMLDivElement>("artistList"),
-  resList: byId<HTMLDivElement>("resList"),
-
-  // Slots management (admin)
-  slotMgmtDate: byId<HTMLInputElement>("slotMgmtDate"),
-  slotToggleGrid: byId<HTMLDivElement>("slotToggleGrid"),
-  periodStart: byId<HTMLInputElement>("periodStart"),
-  periodEnd: byId<HTMLInputElement>("periodEnd"),
-  periodProgress: byId<HTMLDivElement>("periodProgress"),
-
-  // Overlays
-  confirmOverlay: byId<HTMLDivElement>("confirmOverlay"),
-  confirmTitle: byId<HTMLDivElement>("confirmTitle"),
-  confirmText: byId<HTMLDivElement>("confirmText"),
-  confirmYes: byId<HTMLButtonElement>("confirmYes"),
-  adminOverlay: byId<HTMLDivElement>("adminOverlay"),
-  adminPasswordInput: byId<HTMLInputElement>("adminPasswordInput"),
-  adminModalIcon: byId<HTMLDivElement>("adminModalIcon"),
-  adminModalTitle: byId<HTMLDivElement>("adminModalTitle"),
-  adminModalText: byId<HTMLDivElement>("adminModalText"),
-
-  // Toast / loading
-  toast: byId<HTMLDivElement>("toast"),
-  loadingOverlay: byId<HTMLDivElement>("loadingOverlay"),
-} as const;
-
-/* ---------------------------
- * Date utils
- * --------------------------- */
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
 function fmtKey(y: number, m: number, d: number) {
-  return `${y}-${pad2(m)}-${pad2(d)}`;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
-function dateOnly(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
+function dateOnly(d: Date) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 function getLimitEndDate() {
   const now = new Date();
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  end.setMonth(end.getMonth() + APP.LIMIT_MONTHS_AHEAD);
-  return end; // date-only
+  end.setMonth(end.getMonth() + LIMIT_MONTHS_AHEAD);
+  return end;
 }
 function limitMaxKey() {
   const end = getLimitEndDate();
   return fmtKey(end.getFullYear(), end.getMonth() + 1, end.getDate());
 }
-function isTooFutureDate(dateObj: Date) {
-  return dateOnly(dateObj) > dateOnly(getLimitEndDate());
+function isTooFutureDate(d: Date) {
+  return dateOnly(d) > dateOnly(getLimitEndDate());
 }
-function isPastDate(dateObj: Date) {
-  const t = new Date();
-  const today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
-  return dateObj < today;
+function slotKey(dateKey: string, slotId: SlotId) {
+  return `${dateKey}_${slotId}`;
 }
 
-/* ---------------------------
- * Store (localStorage)
- * --------------------------- */
-function loadStore(): Store {
-  const raw = localStorage.getItem(APP.STORE_KEY);
-  if (!raw) {
-    return {
-      version: APP.VERSION,
-      reservations: {},
-      artists: {},
-      closedSlots: {},
-    };
-  }
+// ============================
+// Toast / Loading
+// ============================
+function showToast(msg: string, type: '' | 'success' | 'cancel' | 'pending' | 'error' = '') {
+  const t = el<HTMLDivElement>('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ` ${type}` : '');
+  window.setTimeout(() => (t.className = 'toast'), 3500);
+}
+function showLoading(show: boolean) {
+  el<HTMLDivElement>('loadingOverlay').classList.toggle('show', show);
+}
+
+// ============================
+// Demo Storage
+// ============================
+function loadState(): DemoState | null {
   try {
-    const parsed = JSON.parse(raw) as Store;
-    // light guard
-    if (!parsed || typeof parsed !== "object") throw new Error("bad store");
-    return {
-      version: APP.VERSION,
-      reservations: parsed.reservations ?? {},
-      artists: parsed.artists ?? {},
-      closedSlots: parsed.closedSlots ?? {},
-    };
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DemoState;
+    if (!parsed || parsed.version !== APP_VERSION) return null;
+    return parsed;
   } catch {
-    return {
-      version: APP.VERSION,
-      reservations: {},
-      artists: {},
-      closedSlots: {},
-    };
+    return null;
   }
 }
-function saveStore() {
-  localStorage.setItem(APP.STORE_KEY, JSON.stringify(store));
+function saveState(state: DemoState) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
-function newId(prefix: string) {
+
+function makeId(prefix: string) {
+  // collision-safe enough for demo
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-/* ---------------------------
- * UI helpers (toast/loading)
- * --------------------------- */
-function showLoading(show: boolean) {
-  el.loadingOverlay.classList.toggle("show", show);
-}
-function showToast(msg: string, type: "" | "success" | "cancel" | "pending" | "error" = "") {
-  el.toast.textContent = msg;
-  el.toast.className = "toast show" + (type ? " " + type : "");
-  window.setTimeout(() => (el.toast.className = "toast"), 3200);
-}
+// ============================
+// Seed (強め演出 / 想定運用: 平日クローズ多め・土日オープン)
+// ============================
+function seedState(): DemoState {
+  const now = new Date();
+  const today = dateOnly(now);
+  const max = getLimitEndDate();
 
-/* ---------------------------
- * Seed data (first run)
- * --------------------------- */
-function seedIfNeeded() {
-  const done = localStorage.getItem(APP.SEED_DONE_KEY);
-  if (done) return;
-
-  // Artists (approved/pending mix)
+  // --- artists
   const a1: Artist = {
-    id: "artist_seed_1",
-    name: "山田 太郎",
-    phone: "090-1234-5678",
-    artist: "ソラノオト",
-    genre: "Acoustic",
-    instagram: "sora.no.oto",
-    youtube: "https://www.youtube.com/@soranooto",
-    lineId: "@sora_no_oto",
-    status: "approved",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 20).toISOString(),
+    id: 'artist_demo_approved_1',
+    name: '山田 太郎',
+    phone: '090-1111-2222',
+    artist: 'ソラノオト',
+    genre: 'アコースティック',
+    instagram: 'sora_note',
+    youtube: 'https://www.youtube.com/@soranote',
+    lineId: '@soranote',
+    status: 'approved',
+    createdAt: new Date().toISOString(),
   };
   const a2: Artist = {
-    id: "artist_seed_2",
-    name: "佐藤 花",
-    phone: "080-2222-3333",
-    artist: "HANA",
-    genre: "Pop",
-    tiktok: "@hana_tokuyama",
-    lineId: "@hana_tokuyama",
-    status: "approved",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 12).toISOString(),
+    id: 'artist_demo_approved_2',
+    name: '佐藤 花',
+    phone: '090-3333-4444',
+    artist: 'HANA VIBES',
+    genre: 'Neo-Soul',
+    tiktok: '@hanavibes',
+    instagram: 'hana_vibes',
+    lineId: '@hanavibes',
+    status: 'approved',
+    createdAt: new Date().toISOString(),
   };
   const a3: Artist = {
-    id: "artist_seed_3",
-    name: "田中 海斗",
-    phone: "070-9999-0000",
-    artist: "Kaito Loop",
-    genre: "Loop / Beat",
-    instagram: "kaito.loop",
-    videoUrl: "https://youtu.be/dQw4w9WgXcQ",
-    lineId: "@kaito_loop",
-    status: "pending",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
+    id: 'artist_demo_pending_1',
+    name: '田中 次郎',
+    phone: '080-5555-6666',
+    artist: 'Tokuyama Beats',
+    genre: 'DJ / HipHop',
+    twitter: '@tokuyamabeats',
+    videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
+    lineId: '@tokuyama_beats',
+    status: 'pending',
+    createdAt: new Date().toISOString(),
   };
 
-  store.artists[a1.id] = a1;
-  store.artists[a2.id] = a2;
-  store.artists[a3.id] = a3;
+  const artists: Record<string, Artist> = {
+    [a1.id]: a1,
+    [a2.id]: a2,
+    [a3.id]: a3,
+  };
 
-  // Closed slots policy:
-  // - Mon-Thu: mostly closed (all closed)
-  // - Fri: half open
-  // - Sat/Sun: open
-  // plus some "closed patches" to create dots variation
-  const today = dateOnly(new Date());
-  const maxEnd = getLimitEndDate();
+  const closedSlots: Record<string, true> = {};
+  const reservations: Record<string, Reservation> = {};
 
-  const betweenDays: Date[] = [];
-  {
-    const cur = new Date(today);
-    while (cur <= maxEnd) {
-      betweenDays.push(new Date(cur));
-      cur.setDate(cur.getDate() + 1);
-    }
-  }
+  // policy:
+  // - 平日: 基本クローズ多め（全枠クローズの日を多数）
+  // - 土日: オープン（ただし一部枠クローズや予約で演出）
+  // - 近い週末: 満枠/一部空きを意図的に作る
 
-  for (const d of betweenDays) {
-    const dow = d.getDay();
-    const dateKey = fmtKey(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  // helper to iterate dates
+  const cur = new Date(today);
+  while (cur <= max) {
+    const dow = cur.getDay(); // 0=Sun ... 6=Sat
+    const dateKey = fmtKey(cur.getFullYear(), cur.getMonth() + 1, cur.getDate());
 
-    // Mon-Thu: all closed
-    if (dow >= 1 && dow <= 4) {
-      for (const s of SLOTS) store.closedSlots[`${dateKey}_${s.id}`] = true;
-      continue;
-    }
+    const isWeekend = dow === 0 || dow === 6;
 
-    // Fri: open A,B ; close C,D
-    if (dow === 5) {
-      store.closedSlots[`${dateKey}_C`] = true;
-      store.closedSlots[`${dateKey}_D`] = true;
-      continue;
-    }
-
-    // Sat/Sun: open all by default
-    // but make "some closed dots" occasionally
-    if (dow === 0 || dow === 6) {
-      const day = d.getDate();
-      if (day % 3 === 0) store.closedSlots[`${dateKey}_D`] = true; // last slot sometimes closed
-      if (day % 5 === 0) store.closedSlots[`${dateKey}_A`] = true; // first slot sometimes closed
-    }
-  }
-
-  // Seed reservations to force "full" and "partial"
-  // Find next Saturday & Sunday within range that are not past
-  const next = (targetDow: number, nth: number) => {
-    let found: Date | null = null;
-    let count = 0;
-    for (const d of betweenDays) {
-      if (d.getDay() === targetDow && !isPastDate(d)) {
-        count++;
-        if (count === nth) { found = d; break; }
+    if (!isWeekend) {
+      // 平日は「全枠クローズ」多め、たまに1枠だけ開ける
+      const r = Math.random();
+      if (r < 0.75) {
+        // almost closed day
+        for (const s of SLOTS) closedSlots[slotKey(dateKey, s.id)] = true;
+      } else {
+        // partially open: open only A, close others
+        for (const s of SLOTS) {
+          if (s.id !== 'A') closedSlots[slotKey(dateKey, s.id)] = true;
+        }
+      }
+    } else {
+      // 土日は基本オープン。ただしランダムで1枠クローズ
+      const r = Math.random();
+      if (r < 0.25) {
+        const pick = (['A','B','C','D'] as SlotId[])[Math.floor(Math.random() * 4)];
+        closedSlots[slotKey(dateKey, pick)] = true;
       }
     }
-    return found;
-  };
+    cur.setDate(cur.getDate() + 1);
+  }
 
-  const sat1 = next(6, 1); // next Saturday
-  const sun1 = next(0, 1); // next Sunday
-  const sat2 = next(6, 2); // second Saturday
+  // 强演出：直近の土日を「満枠/一部空き」へ寄せる
+  // 直近 2 回分の週末を探して、1日は満枠、1日は一部空き
+  const weekends: string[] = [];
+  const scan = new Date(today);
+  while (scan <= max && weekends.length < 6) {
+    const dow = scan.getDay();
+    if (dow === 0 || dow === 6) {
+      weekends.push(fmtKey(scan.getFullYear(), scan.getMonth() + 1, scan.getDate()));
+    }
+    scan.setDate(scan.getDate() + 1);
+  }
 
-  const makeRes = (date: Date, slotId: SlotId, artist: Artist) => {
-    const dateKey = fmtKey(date.getFullYear(), date.getMonth() + 1, date.getDate());
-    const r: Reservation = {
-      id: newId("res_seed"),
+  const makeRes = (dateKey: string, slotId: SlotId, artist: Artist, note?: string) => {
+    const id = makeId('res_demo');
+    reservations[id] = {
+      id,
       dateKey,
       slotId,
       artistId: artist.id,
-      artistName: artist.artist,
       name: artist.name,
+      artistName: artist.artist || artist.name,
       phone: artist.phone,
       lineId: artist.lineId,
-      note: "（デモ）予約サンプル",
-      createdAt: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
+      note,
+      createdAt: new Date().toISOString(),
     };
-    store.reservations[r.id] = r;
   };
 
-  if (sat1) {
-    // FULL day: reserve all open slots (respect closedSlots)
+  // day1: full（開いてる枠は全部予約）
+  const fullDay = weekends[1] ?? weekends[0];
+  if (fullDay) {
     for (const s of SLOTS) {
-      const k: ClosedSlotKey = `${fmtKey(sat1.getFullYear(), sat1.getMonth() + 1, sat1.getDate())}_${s.id}`;
-      if (!store.closedSlots[k]) makeRes(sat1, s.id, a1);
+      if (closedSlots[slotKey(fullDay, s.id)]) continue; // closed stays closed
+      makeRes(fullDay, s.id, a1, '（デモ）フルブッキング');
     }
   }
-  if (sun1) {
-    // PARTIAL: reserve 1~2 slots
-    makeRes(sun1, "B", a2);
-    makeRes(sun1, "C", a1);
+
+  // day2: partial（2枠だけ予約、残り空き）
+  const partialDay = weekends[2] ?? weekends[0];
+  if (partialDay) {
+    const candidates = (['A','B','C','D'] as SlotId[]).filter(id => !closedSlots[slotKey(partialDay, id)]);
+    if (candidates.length >= 2) {
+      makeRes(partialDay, candidates[0], a2, '（デモ）人気枠');
+      makeRes(partialDay, candidates[1], a1, '（デモ）予約済み');
+    }
   }
-  if (sat2) {
-    // Another partial: one slot reserved + one slot closed already (visual mix)
-    makeRes(sat2, "A", a2);
-  }
 
-  saveStore();
-  localStorage.setItem(APP.SEED_DONE_KEY, "1");
+  return { version: APP_VERSION, reservations, artists, closedSlots };
 }
 
-/* ---------------------------
- * Business helpers
- * --------------------------- */
-function slotKey(dateKey: string, slotId: SlotId): ClosedSlotKey {
-  return `${dateKey}_${slotId}`;
-}
-function isClosed(dateKey: string, slotId: SlotId): boolean {
-  return !!store.closedSlots[slotKey(dateKey, slotId)];
-}
-function dayReservations(dateKey: string): Reservation[] {
-  return Object.values(store.reservations).filter((r) => r.dateKey === dateKey);
-}
-function isSlotReserved(dateKey: string, slotId: SlotId): boolean {
-  return Object.values(store.reservations).some((r) => r.dateKey === dateKey && r.slotId === slotId);
-}
-function openSlotIds(dateKey: string): SlotId[] {
-  return SLOTS.map((s) => s.id).filter((id) => !isClosed(dateKey, id));
-}
-function approvedArtistOnly(artistId: string | null): artistId is string {
-  if (!artistId) return false;
-  const a = store.artists[artistId];
-  return !!a && a.status === "approved";
+// ============================
+// App State (in-memory mirror)
+// ============================
+let state: DemoState = loadState() ?? seedState();
+
+// view state
+let currentYear = 0;
+let currentMonth = 0; // 0-11
+let selectedDate: { y: number; m: number; d: number; dow: number } | null = null;
+let selectedSlotId: SlotId | null = null;
+let pendingCancelId: string | null = null;
+let currentFoundArtistId: string | null = null;
+
+let isAdmin = false;
+const ADMIN_PASSWORD = 'Hirakegoma2025'; // demo only
+
+// ============================
+// Persistence wrapper
+// ============================
+function commit() {
+  saveState(state);
 }
 
-/* ---------------------------
- * Tabs
- * --------------------------- */
-function setAdminUI(isAdmin: boolean) {
-  ui.isAdmin = isAdmin;
-
-  // show/hide admin tabs
-  const adminTabs = document.querySelectorAll<HTMLElement>(".admin-tab");
-  adminTabs.forEach((t) => (t.style.display = isAdmin ? "flex" : "none"));
-
-  el.adminBtn.textContent = isAdmin ? "🔓 管理者" : "🔒 管理者";
-  el.adminBtn.style.background = isAdmin ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.15)";
-
-  // If logged out, return to calendar
-  if (!isAdmin) switchTab("calendar");
-}
-
-function switchTab(tab: TabId) {
-  const map: Record<TabId, { page: HTMLElement; tab: HTMLButtonElement }> = {
-    calendar: { page: el.pageCalendar, tab: el.tabCalendar },
-    slots: { page: el.pageSlots, tab: el.tabSlots },
-    artists: { page: el.pageArtists, tab: el.tabArtists },
-    reservations: { page: el.pageReservations, tab: el.tabReservations },
-  };
-
-  (Object.keys(map) as TabId[]).forEach((t) => {
-    map[t].page.style.display = t === tab ? "block" : "none";
-    map[t].tab.classList.toggle("active", t === tab);
+// ============================
+// Tabs
+// ============================
+function switchTab(tab: 'calendar' | 'slots' | 'artists' | 'reservations') {
+  (['calendar','slots','artists','reservations'] as const).forEach(t => {
+    el<HTMLDivElement>('page' + cap(t)).style.display = t === tab ? 'block' : 'none';
+    el<HTMLButtonElement>('tab' + cap(t)).classList.toggle('active', t === tab);
   });
-
-  if (tab === "artists") renderArtistList();
-  if (tab === "reservations") renderReservationsList();
-  if (tab === "slots") renderSlotMgmt();
+  if (tab === 'artists') renderArtistList();
+  if (tab === 'reservations') renderResList();
+  if (tab === 'slots') renderSlotMgmt();
 }
 
-/* ---------------------------
- * Calendar rendering
- * --------------------------- */
-function renderCalendar() {
-  el.calMonthLabel.textContent = `${ui.currentYear}年 ${ui.currentMonth + 1}月`;
+// expose to window for inline onclick in HTML
+(Object.assign(window as any, {
+  switchTab,
+}));
 
+// ============================
+// Admin Auth
+// ============================
+function toggleAdminLogin() {
+  if (isAdmin) {
+    isAdmin = false;
+    document.querySelectorAll<HTMLElement>('.admin-tab').forEach(n => (n.style.display = 'none'));
+    switchTab('calendar');
+    const btn = el<HTMLButtonElement>('adminBtn');
+    btn.textContent = '🔒 管理者';
+    btn.style.background = 'rgba(255,255,255,.15)';
+    showToast('🔒 管理者をログアウトしました');
+  } else {
+    el<HTMLInputElement>('adminPasswordInput').value = '';
+    el<HTMLDivElement>('adminModalIcon').textContent = '🔐';
+    el<HTMLDivElement>('adminModalTitle').textContent = '管理者ログイン';
+    el<HTMLDivElement>('adminModalText').textContent = 'パスワードを入力してください';
+    el<HTMLInputElement>('adminPasswordInput').style.borderColor = 'var(--sky-mid)';
+    el<HTMLDivElement>('adminOverlay').classList.add('show');
+    setTimeout(() => el<HTMLInputElement>('adminPasswordInput').focus(), 50);
+  }
+}
+function submitAdminLogin() {
+  const pw = el<HTMLInputElement>('adminPasswordInput').value;
+  if (pw === ADMIN_PASSWORD) {
+    isAdmin = true;
+    el<HTMLDivElement>('adminOverlay').classList.remove('show');
+    document.querySelectorAll<HTMLElement>('.admin-tab').forEach(n => (n.style.display = 'flex'));
+    const btn = el<HTMLButtonElement>('adminBtn');
+    btn.textContent = '🔓 管理者';
+    btn.style.background = 'rgba(255,255,255,.3)';
+    showToast('🔓 管理者としてログインしました', 'success');
+  } else {
+    el<HTMLInputElement>('adminPasswordInput').style.borderColor = 'var(--red)';
+    el<HTMLDivElement>('adminModalIcon').textContent = '❌';
+    el<HTMLDivElement>('adminModalTitle').textContent = 'パスワードが違います';
+    el<HTMLInputElement>('adminPasswordInput').value = '';
+    el<HTMLInputElement>('adminPasswordInput').focus();
+  }
+}
+function closeAdminOverlay() {
+  el<HTMLDivElement>('adminOverlay').classList.remove('show');
+}
+
+(Object.assign(window as any, {
+  toggleAdminLogin,
+  submitAdminLogin,
+  closeAdminOverlay,
+}));
+
+// ============================
+// Badge
+// ============================
+function updatePendingBadge() {
+  const n = Object.values(state.artists).filter(a => a.status === 'pending').length;
+  const b = el<HTMLSpanElement>('pendingBadge');
+  b.textContent = String(n);
+  b.style.display = n > 0 ? 'inline-flex' : 'none';
+}
+
+// ============================
+// Slot closed?
+// ============================
+function isClosed(dateKey: string, slotId: SlotId) {
+  return !!state.closedSlots[slotKey(dateKey, slotId)];
+}
+function openSlotsFor(dateKey: string) {
+  return SLOTS.filter(s => !isClosed(dateKey, s.id));
+}
+
+// ============================
+// Calendar
+// ============================
+function renderCalendar() {
+  el<HTMLDivElement>('calMonthLabel').textContent = `${currentYear}年 ${currentMonth + 1}月`;
+
+  // month navigation disable (past / too future)
   const now = new Date();
   const minMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const maxEnd = getLimitEndDate();
   const maxMonth = new Date(maxEnd.getFullYear(), maxEnd.getMonth(), 1);
-  const curMonthDate = new Date(ui.currentYear, ui.currentMonth, 1);
+  const curMonthDate = new Date(currentYear, currentMonth, 1);
 
-  el.btnPrevMonth.disabled = curMonthDate <= minMonth;
-  el.btnNextMonth.disabled = curMonthDate >= maxMonth;
+  el<HTMLButtonElement>('btnPrevMonth').disabled = curMonthDate <= minMonth;
+  el<HTMLButtonElement>('btnNextMonth').disabled = curMonthDate >= maxMonth;
 
-  el.calGrid.innerHTML = "";
-  const firstDay = new Date(ui.currentYear, ui.currentMonth, 1).getDay();
-  const daysInMonth = new Date(ui.currentYear, ui.currentMonth + 1, 0).getDate();
+  const grid = el<HTMLDivElement>('calGrid');
+  grid.innerHTML = '';
+
+  const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const today = new Date();
 
   for (let i = 0; i < firstDay; i++) {
-    const e = document.createElement("div");
-    e.className = "cal-day empty";
-    el.calGrid.appendChild(e);
+    const e = document.createElement('div');
+    e.className = 'cal-day empty';
+    grid.appendChild(e);
   }
 
   for (let d = 1; d <= daysInMonth; d++) {
-    const date = new Date(ui.currentYear, ui.currentMonth, d);
-    const dateKey = fmtKey(ui.currentYear, ui.currentMonth + 1, d);
+    const date = new Date(currentYear, currentMonth, d);
+    const dateKey = fmtKey(currentYear, currentMonth + 1, d);
+
+    const dayRess = Object.values(state.reservations).filter(r => r.dateKey === dateKey);
+    const openSlots = openSlotsFor(dateKey);
+
     const dow = date.getDay();
-
-    const isPast = isPastDate(date);
+    const isPast = date < new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const isToday = date.toDateString() === today.toDateString();
-    const tooFuture = isTooFutureDate(date);
-
-    const openSlots = openSlotIds(dateKey);
     const allClosed = openSlots.length === 0;
+    const isTooFuture = isTooFutureDate(date);
 
-    // reserved count only on open slots
-    const reservedOpen = dayReservations(dateKey).filter((r) => !isClosed(dateKey, r.slotId)).length;
-    const isFull = !isPast && !allClosed && reservedOpen >= openSlots.length;
+    let cls = 'cal-day';
+    if (isPast) cls += ' past';
+    if (isToday) cls += ' today';
+    if (dow === 0) cls += ' sun';
+    if (dow === 6) cls += ' sat';
 
-    let cls = "cal-day";
-    if (isPast) cls += " past";
-    if (isToday) cls += " today";
-    if (dow === 0) cls += " sun";
-    if (dow === 6) cls += " sat";
-    if (tooFuture) cls += " too-future";
-    else if (!isPast && allClosed) cls += " closed";
-    else if (isFull) cls += " full";
+    if (isTooFuture) cls += ' too-future';
+    else if (!isPast && allClosed) cls += ' closed';
+    else {
+      // full: openSlots are all booked
+      const bookedCount = openSlots.filter(s => dayRess.some(r => r.slotId === s.id)).length;
+      if (!isPast && !allClosed && bookedCount >= openSlots.length && openSlots.length > 0) cls += ' full';
+    }
 
-    const cell = document.createElement("div");
+    const cell = document.createElement('div');
     cell.className = cls;
 
-    const dots = SLOTS.map((s) => {
-      const c = isClosed(dateKey, s.id)
-        ? " closed-dot"
-        : isSlotReserved(dateKey, s.id)
-          ? " booked"
-          : "";
+    const dots = (SLOTS as typeof SLOTS).map(s => {
+      const c = isClosed(dateKey, s.id) ? ' closed-dot' : (dayRess.some(r => r.slotId === s.id) ? ' booked' : '');
       return `<div class="slot-dot${c}"></div>`;
-    }).join("");
+    }).join('');
 
     cell.innerHTML = `<div class="day-num">${d}</div><div class="slot-dots">${dots}</div>`;
 
-    const clickable = !isPast && !allClosed && !tooFuture;
-    if (clickable) {
-      cell.addEventListener("click", () => openModal(ui.currentYear, ui.currentMonth + 1, d, dow));
+    if (!isPast && !allClosed && !isTooFuture) {
+      cell.onclick = () => openModal(currentYear, currentMonth + 1, d, dow);
     }
-
-    el.calGrid.appendChild(cell);
+    grid.appendChild(cell);
   }
 }
 
 function changeMonth(delta: number) {
-  const cand = new Date(ui.currentYear, ui.currentMonth + delta, 1);
-
+  const cand = new Date(currentYear, currentMonth + delta, 1);
   const now = new Date();
   const min = new Date(now.getFullYear(), now.getMonth(), 1);
   const end = getLimitEndDate();
   const max = new Date(end.getFullYear(), end.getMonth(), 1);
-
   if (cand < min || cand > max) return;
 
-  ui.currentYear = cand.getFullYear();
-  ui.currentMonth = cand.getMonth();
+  currentYear = cand.getFullYear();
+  currentMonth = cand.getMonth();
   renderCalendar();
 }
 
-/* ---------------------------
- * Modal & Form
- * --------------------------- */
+(Object.assign(window as any, {
+  changeMonth,
+}));
+
+// ============================
+// Modal
+// ============================
 function openModal(y: number, m: number, d: number, dow: number) {
   const dateObj = new Date(y, m - 1, d);
   if (isTooFutureDate(dateObj)) {
-    showToast("⚠️ 予約は3ヶ月先までです", "error");
+    showToast('⚠️ 予約は3ヶ月先までです', 'error');
     return;
   }
 
-  ui.selectedDate = { y, m, d, dow };
-  ui.selectedSlotId = null;
-  ui.foundArtistId = null;
-
-  el.modalDateLabel.textContent = `${y}年${m}月${d}日（${WEEKDAYS[dow]}）`;
-  el.modalDateSub.textContent = MONTHS[m - 1];
+  selectedDate = { y, m, d, dow };
+  el<HTMLDivElement>('modalDateLabel').textContent = `${y}年${m}月${d}日（${WEEKDAYS[dow]}）`;
+  el<HTMLDivElement>('modalDateSub').textContent = MONTHS[m - 1] ?? '';
   renderModalSlots(fmtKey(y, m, d));
   closeForm();
-  el.modalOverlay.classList.add("show");
-}
 
+  el<HTMLDivElement>('modalOverlay').classList.add('show');
+}
 function closeModal() {
-  el.modalOverlay.classList.remove("show");
+  el<HTMLDivElement>('modalOverlay').classList.remove('show');
   closeForm();
 }
+function closeModalIfOutside(e: MouseEvent) {
+  if (e.target === el<HTMLDivElement>('modalOverlay')) closeModal();
+}
+
+(Object.assign(window as any, {
+  closeModal,
+  closeModalIfOutside,
+}));
 
 function renderModalSlots(dateKey: string) {
-  el.slotList.innerHTML = "";
-  const dayRess = dayReservations(dateKey);
+  const list = el<HTMLDivElement>('slotList');
+  list.innerHTML = '';
 
-  SLOTS.forEach((slot) => {
-    const reserved = dayRess.find((r) => r.slotId === slot.id);
+  const dayRess = Object.values(state.reservations).filter(r => r.dateKey === dateKey);
+
+  for (const slot of SLOTS) {
+    const res = dayRess.find(r => r.slotId === slot.id);
     const closed = isClosed(dateKey, slot.id);
 
-    // ✅ 予約が入った枠は一覧から外す（演出が映える）
-    if (reserved) return;
+    // 予約済み枠は非表示（あなたの要件）
+    if (res) continue;
 
-    const item = document.createElement("div");
-    const isSelected = ui.selectedSlotId === slot.id;
+    const item = document.createElement('div');
+    const isSelected = selectedSlotId === slot.id;
 
-    item.className =
-      "slot-item" +
-      (closed ? " closed-slot" : "") +
-      (isSelected ? " selected-slot" : "");
-
+    item.className = 'slot-item' + (closed ? ' closed-slot' : '') + (isSelected ? ' selected-slot' : '');
     item.innerHTML = `
       <div class="slot-time">${slot.time}</div>
       <div class="slot-info">
-        <div class="slot-label">${closed ? "クローズ" : slot.label}</div>
-        <div class="slot-sublabel">${closed ? "—" : "空き枠"}</div>
+        <div class="slot-label">${closed ? 'クローズ' : slot.label}</div>
+        <div class="slot-sublabel">${closed ? '—' : '空き枠（デモ）'}</div>
       </div>
     `;
 
-    const btn = document.createElement("button");
-    btn.className = "slot-action-btn ";
+    const btn = document.createElement('button');
+    btn.className = 'slot-action-btn ';
 
     if (closed) {
-      btn.className += "btn-disabled";
-      btn.textContent = "受付停止中";
-      btn.type = "button";
+      btn.className += 'btn-disabled';
+      btn.textContent = '受付停止中';
     } else {
-      btn.className += "btn-reserve";
-      btn.textContent = "予約する";
-      btn.type = "button";
-      btn.addEventListener("click", () => openForm(slot.id));
+      btn.className += 'btn-reserve';
+      btn.textContent = '予約する';
+      btn.onclick = () => openForm(slot.id);
     }
 
     item.appendChild(btn);
-    el.slotList.appendChild(item);
-  });
-
-  // If all slots are hidden (all reserved/closed), show hint
-  if (el.slotList.children.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "no-data";
-    empty.textContent = "この日は予約可能な枠がありません（満枠またはクローズ）";
-    el.slotList.appendChild(empty);
+    list.appendChild(item);
   }
 }
 
-function openForm(slotId: SlotId) {
-  ui.selectedSlotId = slotId;
-
-  // rerender to apply orange highlight
-  if (ui.selectedDate) {
-    renderModalSlots(fmtKey(ui.selectedDate.y, ui.selectedDate.m, ui.selectedDate.d));
-  }
-
-  resetFormUI();
-  el.formSection.classList.add("show");
-  setTimeout(() => el.formSection.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
-}
-
-function closeForm() {
-  el.formSection.classList.remove("show");
-  ui.selectedSlotId = null;
-  ui.foundArtistId = null;
-}
-
+// ============================
+// Form / Steps
+// ============================
 function setStep(n: 1 | 2 | 3) {
-  const steps = [el.step1, el.step2, el.step3];
-  steps.forEach((s) => s.classList.remove("active", "done"));
-  if (n >= 2) el.step1.classList.add("done");
-  if (n >= 3) el.step2.classList.add("done");
-  steps[n - 1].classList.add("active");
-
-  el.stepLine1.classList.toggle("done", n >= 2);
-  el.stepLine2.classList.toggle("done", n >= 3);
+  ([1,2,3] as const).forEach(i => {
+    const s = el<HTMLDivElement>('step' + i);
+    s.classList.remove('active', 'done');
+    if (i < n) s.classList.add('done');
+    if (i === n) s.classList.add('active');
+  });
+  ([1,2] as const).forEach(i => el<HTMLDivElement>('stepLine' + i).classList.toggle('done', i < n));
 }
 
 function resetFormUI() {
   setStep(1);
-  el.lookupInput.value = "";
-  el.artistFound.classList.remove("show");
-  el.artistNotFound.classList.remove("show");
-  el.pendingInline.classList.remove("show");
+  el<HTMLInputElement>('lookupInput').value = '';
+  el<HTMLDivElement>('artistFound').classList.remove('show');
+  el<HTMLDivElement>('artistNotFound').classList.remove('show');
+  el<HTMLDivElement>('pendingInline').classList.remove('show');
+  el<HTMLDivElement>('step1Area').style.display = 'block';
+  el<HTMLDivElement>('step2Area').style.display = 'none';
+  currentFoundArtistId = null;
 
-  el.step1Area.style.display = "block";
-  el.step2Area.style.display = "none";
+  const btn = el<HTMLButtonElement>('btnProceed');
+  btn.disabled = false;
+  btn.style.background = '';
+  btn.textContent = '次へ → 予約情報を入力';
 
-  ui.foundArtistId = null;
-
-  el.btnProceed.disabled = false;
-  el.btnProceed.textContent = "次へ → 予約情報を入力";
-
-  // reset inputs
-  const ids: (HTMLInputElement | HTMLTextAreaElement)[] = [
-    el.fName, el.fPhone, el.fArtist, el.fGenre,
-    el.fInstagram, el.fTiktok, el.fYoutube, el.fTwitter,
-    el.fVideoUrl, el.fVideoLineId, el.fLineId,
-    el.fNote, el.fReserveNote,
-  ];
-  ids.forEach((i) => (i.value = ""));
-
-  // reset SNS wraps (visual)
-  ["instagram","tiktok","youtube","twitter"].forEach((p) => {
-    const w = document.getElementById("snsWrap_" + p);
-    w?.classList.remove("has-value");
-  });
-  byId<HTMLDivElement>("videoOptionUrl").classList.remove("selected");
-  byId<HTMLDivElement>("videoOptionLine").classList.remove("selected");
-
-  // enable fields
-  el.newArtistForm.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement>("input,textarea,button")
-    .forEach((x) => (x.disabled = false));
-}
-
-function onSnsInput(platform: "instagram" | "tiktok" | "youtube" | "twitter") {
-  const inputId = ("f" + platform.charAt(0).toUpperCase() + platform.slice(1)) as
-    | "fInstagram" | "fTiktok" | "fYoutube" | "fTwitter";
-  const v = (el as any)[inputId].value.trim() as string;
-  byId<HTMLDivElement>("snsWrap_" + platform).classList.toggle("has-value", v !== "");
-}
-function onVideoInput() {
-  byId<HTMLDivElement>("videoOptionUrl").classList.toggle("selected", el.fVideoUrl.value.trim() !== "");
-  byId<HTMLDivElement>("videoOptionLine").classList.toggle("selected", el.fVideoLineId.value.trim() !== "");
-}
-
-/* ---------------------------
- * Lookup -> Approved only can proceed
- * --------------------------- */
-function lookupArtist() {
-  const q = el.lookupInput.value.trim().toLowerCase();
-  if (!q) return;
-
-  const normalizePhone = (p: string) => p.replace(/-/g, "");
-  const qPhone = normalizePhone(q);
-
-  const found = Object.values(store.artists).find((a) => {
-    const phoneHit = normalizePhone(a.phone).includes(qPhone);
-    const nameHit = a.name.toLowerCase().includes(q);
-    const artistHit = (a.artist ?? "").toLowerCase().includes(q);
-    return phoneHit || nameHit || artistHit;
+  ([
+    'fName','fPhone','fArtist','fGenre',
+    'fInstagram','fTiktok','fYoutube','fTwitter',
+    'fVideoUrl','fVideoLineId','fLineId','fNote','fReserveNote'
+  ] as const).forEach(id => {
+    const node = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null;
+    if (node) node.value = '';
   });
 
-  el.artistFound.classList.remove("show");
-  el.artistNotFound.classList.remove("show");
-  ui.foundArtistId = null;
+  (['instagram','tiktok','youtube','twitter'] as const).forEach(s => {
+    el<HTMLDivElement>('snsWrap_' + s).classList.remove('has-value');
+  });
 
-  if (!found) {
-    el.artistNotFound.classList.add("show");
-    return;
-  }
+  el<HTMLDivElement>('videoOptionUrl').classList.remove('selected');
+  el<HTMLDivElement>('videoOptionLine').classList.remove('selected');
 
-  ui.foundArtistId = found.id;
-  el.foundName.textContent = `${found.artist || found.name}（${found.name}）`;
-  el.foundSub.textContent = `${found.phone}${found.genre ? "　" + found.genre : ""}`;
+  el<HTMLDivElement>('newArtistForm')
+    .querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement>('input,textarea,button.btn-register')
+    .forEach(n => (n.disabled = false));
+}
 
-  if (found.status === "approved") {
-    el.foundBadge.textContent = "✅ 承認済み";
-    el.foundBadge.className = "artist-found-badge";
-    el.btnProceed.disabled = false;
-    el.btnProceed.textContent = "次へ → 予約情報を入力";
-  } else {
-    el.foundBadge.textContent = "⏳ 審査中";
-    el.foundBadge.className = "artist-found-badge pending-badge";
-    el.btnProceed.disabled = true;
-    el.btnProceed.textContent = "⏳ 審査完了後に予約できます";
-  }
+function openForm(slotId: SlotId) {
+  selectedSlotId = slotId;
+  if (selectedDate) renderModalSlots(fmtKey(selectedDate.y, selectedDate.m, selectedDate.d));
 
-  el.artistFound.classList.add("show");
+  resetFormUI();
+  el<HTMLDivElement>('formSection').classList.add('show');
+  setTimeout(() => el<HTMLDivElement>('formSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+}
+function closeForm() {
+  el<HTMLDivElement>('formSection').classList.remove('show');
+  selectedSlotId = null;
+  currentFoundArtistId = null;
 }
 
 function proceedToStep2() {
-  if (!approvedArtistOnly(ui.foundArtistId)) return;
-
-  const a = store.artists[ui.foundArtistId];
+  if (!currentFoundArtistId) return;
+  const a = state.artists[currentFoundArtistId];
   setStep(2);
-  el.step2ArtistName.textContent = `${a.artist || a.name}（${a.name}）`;
-  el.step2ArtistSub.textContent = `${a.phone}${a.genre ? "　" + a.genre : ""}`;
-
-  el.step1Area.style.display = "none";
-  el.step2Area.style.display = "block";
+  el<HTMLDivElement>('step2ArtistName').textContent = `${a.artist || a.name}（${a.name}）`;
+  el<HTMLDivElement>('step2ArtistSub').textContent = a.phone + (a.genre ? `　${a.genre}` : '');
+  el<HTMLDivElement>('step1Area').style.display = 'none';
+  el<HTMLDivElement>('step2Area').style.display = 'block';
 }
-
 function backToStep1() {
   setStep(1);
-  el.step1Area.style.display = "block";
-  el.step2Area.style.display = "none";
+  el<HTMLDivElement>('step1Area').style.display = 'block';
+  el<HTMLDivElement>('step2Area').style.display = 'none';
 }
 
-/* ---------------------------
- * New artist submit (pending)
- * --------------------------- */
-function submitNewArtist() {
-  const name = el.fName.value.trim();
-  const phone = el.fPhone.value.trim();
-  const artist = el.fArtist.value.trim();
-  const lineId = el.fLineId.value.trim();
+(Object.assign(window as any, {
+  proceedToStep2,
+  backToStep1,
+}));
 
-  const instagram = el.fInstagram.value.trim();
-  const tiktok = el.fTiktok.value.trim();
-  const youtube = el.fYoutube.value.trim();
-  const twitter = el.fTwitter.value.trim();
+// ============================
+// Artist lookup (承認済みだけ次へ)
+// ============================
+function lookupArtist() {
+  const q = el<HTMLInputElement>('lookupInput').value.trim().toLowerCase();
+  if (!q) return;
 
-  const videoUrl = el.fVideoUrl.value.trim();
-  const videoLineId = el.fVideoLineId.value.trim();
+  const found = Object.values(state.artists).find(a => {
+    const phone = a.phone.replace(/-/g, '');
+    const qPhone = q.replace(/-/g, '');
+    return (
+      phone.includes(qPhone) ||
+      a.name.toLowerCase().includes(q) ||
+      (a.artist && a.artist.toLowerCase().includes(q))
+    );
+  });
 
-  if (!name || !phone) { showToast("⚠️ お名前と電話番号は必須です", "error"); return; }
-  if (!artist) { showToast("⚠️ アーティスト名は必須です", "error"); return; }
-  if (!lineId) { showToast("⚠️ LINE IDは必須です（予約確定通知用）", "error"); return; }
-  if (!instagram && !tiktok && !youtube && !twitter) { showToast("⚠️ SNSアカウントを1つ以上入力してください", "error"); return; }
-  if (!videoUrl && !videoLineId) { showToast("⚠️ 動画URLまたはLINE IDを入力してください", "error"); return; }
+  el<HTMLDivElement>('artistFound').classList.remove('show');
+  el<HTMLDivElement>('artistNotFound').classList.remove('show');
+  currentFoundArtistId = null;
 
-  const id = newId("artist");
+  const btn = el<HTMLButtonElement>('btnProceed');
+  btn.disabled = false;
+  btn.style.background = '';
+  btn.textContent = '次へ → 予約情報を入力';
+
+  if (found) {
+    currentFoundArtistId = found.id;
+    el<HTMLDivElement>('foundName').textContent = `${found.artist || found.name}（${found.name}）`;
+    el<HTMLDivElement>('foundSub').textContent = found.phone + (found.genre ? `　${found.genre}` : '');
+
+    const badge = el<HTMLDivElement>('foundBadge');
+    if (found.status === 'approved') {
+      badge.textContent = '✅ 承認済み';
+      badge.className = 'artist-found-badge';
+      btn.disabled = false;
+    } else {
+      badge.textContent = '⏳ 審査中';
+      badge.className = 'artist-found-badge pending-badge';
+      btn.disabled = true;
+      btn.textContent = '⏳ 審査完了後に予約できます';
+    }
+
+    el<HTMLDivElement>('artistFound').classList.add('show');
+  } else {
+    el<HTMLDivElement>('artistNotFound').classList.add('show');
+  }
+}
+
+(Object.assign(window as any, {
+  lookupArtist,
+}));
+
+// ============================
+// SNS / Video UI helpers
+// ============================
+function onSnsInput(platform: 'instagram'|'tiktok'|'youtube'|'twitter') {
+  const id = 'f' + platform.charAt(0).toUpperCase() + platform.slice(1);
+  const v = (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? '';
+  el<HTMLDivElement>('snsWrap_' + platform).classList.toggle('has-value', v !== '');
+}
+function onVideoInput(_: 'url'|'line') {
+  const hasUrl = el<HTMLInputElement>('fVideoUrl').value.trim() !== '';
+  const hasLine = el<HTMLInputElement>('fVideoLineId').value.trim() !== '';
+  el<HTMLDivElement>('videoOptionUrl').classList.toggle('selected', hasUrl);
+  el<HTMLDivElement>('videoOptionLine').classList.toggle('selected', hasLine);
+}
+
+(Object.assign(window as any, {
+  onSnsInput,
+  onVideoInput,
+}));
+
+// ============================
+// New artist (demo)
+// ============================
+async function submitNewArtist() {
+  const name = el<HTMLInputElement>('fName').value.trim();
+  const phone = el<HTMLInputElement>('fPhone').value.trim();
+  const artist = el<HTMLInputElement>('fArtist').value.trim();
+  const lineId = el<HTMLInputElement>('fLineId').value.trim();
+  const instagram = el<HTMLInputElement>('fInstagram').value.trim();
+  const tiktok = el<HTMLInputElement>('fTiktok').value.trim();
+  const youtube = el<HTMLInputElement>('fYoutube').value.trim();
+  const twitter = el<HTMLInputElement>('fTwitter').value.trim();
+  const videoUrl = el<HTMLInputElement>('fVideoUrl').value.trim();
+  const videoLine = el<HTMLInputElement>('fVideoLineId').value.trim();
+
+  if (!name || !phone) { showToast('⚠️ お名前と電話番号は必須です', 'error'); return; }
+  if (!artist) { showToast('⚠️ アーティスト名は必須です', 'error'); return; }
+  if (!lineId) { showToast('⚠️ LINE IDは必須です（予約確定通知用）', 'error'); return; }
+  if (!instagram && !tiktok && !youtube && !twitter) { showToast('⚠️ SNSアカウントを1つ以上入力してください', 'error'); return; }
+  if (!videoUrl && !videoLine) { showToast('⚠️ 動画URLまたはLINE IDを入力してください', 'error'); return; }
+
+  const id = makeId('artist');
   const newArtist: Artist = {
     id,
     name,
     phone,
     artist,
-    genre: el.fGenre.value.trim() || undefined,
-    instagram: instagram || undefined,
-    tiktok: tiktok || undefined,
-    youtube: youtube || undefined,
-    twitter: twitter || undefined,
-    videoUrl: videoUrl || undefined,
-    videoLineId: videoLineId || undefined,
+    genre: el<HTMLInputElement>('fGenre').value.trim(),
+    instagram, tiktok, youtube, twitter,
+    videoUrl,
+    videoLineId: videoLine,
     lineId,
-    note: el.fNote.value.trim() || undefined,
-    status: "pending",
+    note: el<HTMLTextAreaElement>('fNote').value.trim(),
+    status: 'pending',
     createdAt: new Date().toISOString(),
   };
 
-  store.artists[id] = newArtist;
-  saveStore();
+  state.artists[id] = newArtist;
+  commit();
+
   updatePendingBadge();
+  el<HTMLDivElement>('pendingInline').classList.add('show');
 
-  el.pendingInline.classList.add("show");
-  el.newArtistForm.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement>("input,textarea,button")
-    .forEach((x) => (x.disabled = true));
-  showToast("📨 審査申請を受け付けました！（DEMO）", "pending");
+  el<HTMLDivElement>('newArtistForm')
+    .querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement>('input,textarea,button.btn-register')
+    .forEach(n => (n.disabled = true));
+
+  // demo: no LINE
+  showToast('📨（デモ）審査申請を受け付けました！', 'pending');
 }
 
-/* ---------------------------
- * Reservation submit (DEMO) + confirmation modal
- * --------------------------- */
-function submitReservationRequest() {
-  if (!approvedArtistOnly(ui.foundArtistId)) return;
-  if (!ui.selectedDate || !ui.selectedSlotId) { showToast("⚠️ 日付と枠を選択してください", "error"); return; }
+(Object.assign(window as any, {
+  submitNewArtist,
+}));
 
-  const dateObj = new Date(ui.selectedDate.y, ui.selectedDate.m - 1, ui.selectedDate.d);
-  if (isTooFutureDate(dateObj)) { showToast("⚠️ 予約は3ヶ月先までです", "error"); return; }
+// ============================
+// Reservation submit (demo / local only)
+// ============================
+async function submitReservation() {
+  if (!currentFoundArtistId) return;
+  if (!selectedDate || !selectedSlotId) { showToast('⚠️ 日付と枠を選択してください', 'error'); return; }
 
-  const dateKey = fmtKey(ui.selectedDate.y, ui.selectedDate.m, ui.selectedDate.d);
-  const slotId = ui.selectedSlotId;
+  const dateObj = new Date(selectedDate.y, selectedDate.m - 1, selectedDate.d);
+  if (isTooFutureDate(dateObj)) { showToast('⚠️ 予約は3ヶ月先までです', 'error'); return; }
 
-  if (isClosed(dateKey, slotId)) { showToast("⚠️ その枠はクローズ中です", "error"); return; }
-  if (isSlotReserved(dateKey, slotId)) { showToast("⚠️ その枠はすでに予約済みです", "error"); return; }
+  const dateKey = fmtKey(selectedDate.y, selectedDate.m, selectedDate.d);
 
-  const a = store.artists[ui.foundArtistId];
-  const note = el.fReserveNote.value.trim();
-
-  const draft: Omit<Reservation, "id" | "createdAt"> = {
-    dateKey,
-    slotId,
-    artistId: a.id,
-    artistName: a.artist || a.name,
-    name: a.name,
-    phone: a.phone,
-    lineId: a.lineId,
-    note: note || undefined,
-  };
-
-  ui.pendingConfirm = { type: "reserve", reservationDraft: draft };
-
-  const slot = SLOTS.find((s) => s.id === slotId)!;
-  openConfirm(
-    "予約を確定しますか？（DEMO）",
-    `📅 ${ui.selectedDate.y}年${ui.selectedDate.m}月${ui.selectedDate.d}日\n⏰ ${slot.time}（${slot.label}）\n🎤 ${draft.artistName}\n\n※ デモ版：localStorageにのみ保存されます`,
-    "予約する",
-    () => finalizeReservation()
-  );
-}
-
-function finalizeReservation() {
-  if (!ui.pendingConfirm || ui.pendingConfirm.type !== "reserve") return;
-  const draft = ui.pendingConfirm.reservationDraft;
-
-  const id = newId("res");
-  const res: Reservation = {
-    id,
-    ...draft,
-    createdAt: new Date().toISOString(),
-  };
-  store.reservations[id] = res;
-  saveStore();
-
-  closeConfirm();
-
-  setStep(3);
-  showToast("✅ 予約が完了しました！（DEMO）", "success");
-
-  // Refresh
-  if (ui.selectedDate) {
-    const dateKey = fmtKey(ui.selectedDate.y, ui.selectedDate.m, ui.selectedDate.d);
+  // double check in-memory
+  const already = Object.values(state.reservations).some(r => r.dateKey === dateKey && r.slotId === selectedSlotId);
+  if (already) {
+    showToast('⚠️ その枠はすでに予約済みです（デモ）', 'error');
+    renderCalendar();
     renderModalSlots(dateKey);
-  }
-  renderCalendar();
-
-  // Close modal after a short beat to show step3
-  setTimeout(() => closeModal(), 450);
-}
-
-/* ---------------------------
- * Cancel reservation (admin list)
- * --------------------------- */
-function requestCancelReservation(resId: string) {
-  const r = store.reservations[resId];
-  if (!r) return;
-  const slot = SLOTS.find((s) => s.id === r.slotId)!;
-  const [y, m, d] = r.dateKey.split("-").map((x) => parseInt(x, 10));
-
-  ui.pendingConfirm = { type: "cancel", reservationId: resId };
-  openConfirm(
-    "予約をキャンセルしますか？（DEMO）",
-    `${r.artistName} 様の\n「${y}/${m}/${d} ${slot.time}」をキャンセルします。\nこの操作は取り消せません。`,
-    "キャンセルする",
-    () => finalizeCancel()
-  );
-}
-
-function finalizeCancel() {
-  if (!ui.pendingConfirm || ui.pendingConfirm.type !== "cancel") return;
-  const id = ui.pendingConfirm.reservationId;
-  delete store.reservations[id];
-  saveStore();
-  closeConfirm();
-  renderCalendar();
-  renderReservationsList();
-  showToast("🗑️ 予約をキャンセルしました（DEMO）", "cancel");
-}
-
-/* ---------------------------
- * Confirm overlay
- * --------------------------- */
-function openConfirm(title: string, text: string, yesLabel: string, onYes: () => void) {
-  el.confirmTitle.textContent = title;
-  el.confirmText.textContent = text;
-  el.confirmYes.textContent = yesLabel;
-  el.confirmYes.onclick = () => onYes();
-  el.confirmOverlay.classList.add("show");
-}
-function closeConfirm() {
-  el.confirmOverlay.classList.remove("show");
-  ui.pendingConfirm = null;
-}
-
-/* ---------------------------
- * Admin login
- * --------------------------- */
-function openAdminLogin() {
-  el.adminPasswordInput.value = "";
-  el.adminModalIcon.textContent = "🔐";
-  el.adminModalTitle.textContent = "管理者ログイン";
-  el.adminModalText.textContent = "パスワードを入力してください（DEMO: demo-admin）";
-  el.adminPasswordInput.style.borderColor = "var(--sky-mid)";
-  el.adminOverlay.classList.add("show");
-  setTimeout(() => el.adminPasswordInput.focus(), 80);
-}
-function closeAdminLogin() {
-  el.adminOverlay.classList.remove("show");
-}
-function submitAdminLogin() {
-  const pw = el.adminPasswordInput.value;
-  if (pw === APP.ADMIN_PASSWORD) {
-    closeAdminLogin();
-    setAdminUI(true);
-    showToast("🔓 管理者としてログインしました（DEMO）", "success");
-  } else {
-    el.adminPasswordInput.style.borderColor = "var(--red)";
-    el.adminModalIcon.textContent = "❌";
-    el.adminModalTitle.textContent = "パスワードが違います";
-    el.adminModalText.textContent = "もう一度入力してください";
-    el.adminPasswordInput.value = "";
-    el.adminPasswordInput.focus();
-  }
-}
-
-/* ---------------------------
- * Admin: Artists list (approve/reject)
- * --------------------------- */
-function updatePendingBadge() {
-  const n = Object.values(store.artists).filter((a) => a.status === "pending").length;
-  el.pendingBadge.textContent = String(n);
-  el.pendingBadge.style.display = n > 0 ? "inline-flex" : "none";
-}
-
-function renderArtistList() {
-  const sorted = Object.values(store.artists).sort((a, b) => {
-    if (a.status === "pending" && b.status !== "pending") return -1;
-    if (a.status !== "pending" && b.status === "pending") return 1;
-    return b.createdAt.localeCompare(a.createdAt);
-  });
-
-  if (!sorted.length) {
-    el.artistList.innerHTML = `<div class="no-data">登録アーティストはまだいません</div>`;
     return;
   }
 
-  el.artistList.innerHTML = "";
+  const a = state.artists[currentFoundArtistId];
+  if (a.status !== 'approved') {
+    showToast('⚠️ 承認済みアーティストのみ予約できます', 'error');
+    return;
+  }
+
+  const id = makeId('res');
+  const note = el<HTMLTextAreaElement>('fReserveNote').value.trim();
+  const res: Reservation = {
+    id,
+    dateKey,
+    slotId: selectedSlotId,
+    artistId: a.id,
+    name: a.name,
+    artistName: a.artist || a.name,
+    phone: a.phone,
+    lineId: a.lineId,
+    note,
+    createdAt: new Date().toISOString(),
+  };
+
+  showLoading(true);
+  // demo latency
+  await new Promise(r => setTimeout(r, 300));
+  state.reservations[id] = res;
+  commit();
+  showLoading(false);
+
+  setStep(3);
+  showToast(`✅（デモ）${dateKey} ${SLOTS.find(s => s.id === selectedSlotId)!.time} を予約しました`, 'success');
+
+  closeModal();
+  renderCalendar();
+}
+
+(Object.assign(window as any, {
+  submitReservation,
+}));
+
+// ============================
+// Cancel confirm
+// ============================
+function confirmCancel(id: string, name: string, time: string) {
+  pendingCancelId = id;
+  el<HTMLDivElement>('confirmTitle').textContent = '予約をキャンセルしますか？';
+  el<HTMLDivElement>('confirmText').textContent =
+    `${name} 様の\n「${time}」の予約をキャンセルします。\nこの操作は取り消せません。`;
+  el<HTMLButtonElement>('confirmYes').onclick = executeCancel;
+  el<HTMLDivElement>('confirmOverlay').classList.add('show');
+}
+function closeConfirm() {
+  el<HTMLDivElement>('confirmOverlay').classList.remove('show');
+  pendingCancelId = null;
+}
+async function executeCancel() {
+  if (!pendingCancelId) return;
+  const res = state.reservations[pendingCancelId];
+  if (!res) return;
+
+  showLoading(true);
+  await new Promise(r => setTimeout(r, 250));
+  delete state.reservations[pendingCancelId];
+  commit();
+  showLoading(false);
+
+  closeConfirm();
+  closeModal();
+  renderCalendar();
+  showToast('🗑️（デモ）予約をキャンセルしました', 'cancel');
+}
+
+(Object.assign(window as any, {
+  confirmCancel,
+  closeConfirm,
+}));
+
+// ============================
+// Artist list / approve / reject (admin)
+// ============================
+function renderArtistList() {
+  const list = el<HTMLDivElement>('artistList');
+  const sorted = Object.values(state.artists).sort((a, b) => {
+    if (a.status === 'pending' && b.status !== 'pending') return -1;
+    if (a.status !== 'pending' && b.status === 'pending') return 1;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+
+  if (!sorted.length) { list.innerHTML = '<div class="no-data">登録アーティストはまだいません</div>'; return; }
+  list.innerHTML = '';
+
   for (const a of sorted) {
-    const card = document.createElement("div");
-    card.className = "artist-card" + (a.status === "pending" ? " pending-card" : "");
+    const card = document.createElement('div');
+    card.className = 'artist-card' + (a.status === 'pending' ? ' pending-card' : '');
     const initial = (a.artist || a.name).charAt(0);
 
     const sns: string[] = [];
     if (a.instagram) sns.push(`📸@${a.instagram}`);
-    if (a.tiktok) sns.push(`🎵TikTok`);
-    if (a.youtube) sns.push(`▶️YouTube`);
+    if (a.tiktok) sns.push('🎵TikTok');
+    if (a.youtube) sns.push('▶️YouTube');
     if (a.twitter) sns.push(`𝕏${a.twitter}`);
+    const vInfo = a.videoUrl ? '🎬動画URL有' : (a.videoLineId ? '💬動画LINE有' : '');
+    const sub = [a.phone, `💬LINE:${a.lineId || '—'}`, ...sns, vInfo, a.genre].filter(Boolean).join('　');
 
-    const vInfo = a.videoUrl ? "🎬動画URL有" : a.videoLineId ? "💬動画LINE有" : "";
-    const sub = [a.phone, `💬LINE:${a.lineId || "—"}`, ...sns, vInfo, a.genre].filter(Boolean).join("　");
-
-    const actions =
-      a.status === "pending"
-        ? `<div class="artist-actions">
-            <button class="btn-approve" type="button" data-action="approve" data-id="${a.id}">✅ 承認</button>
-            <button class="btn-reject" type="button" data-action="reject" data-id="${a.id}">✗ 却下</button>
-          </div>`
-        : `<div class="status-approved">✅ 承認済み</div>`;
+    let actions = `<div class="status-approved">✅ 承認済み</div>`;
+    if (a.status === 'pending') {
+      actions = `
+        <div class="artist-actions">
+          <button class="btn-approve" onclick="approveArtist('${a.id}')">✅ 承認</button>
+          <button class="btn-reject" onclick="rejectArtist('${a.id}')">✗ 却下</button>
+        </div>`;
+    }
 
     card.innerHTML = `
       <div class="artist-avatar">${initial}</div>
       <div class="artist-card-info">
-        <div class="artist-card-name">${a.artist || a.name}${a.artist ? `（${a.name}）` : ""}</div>
+        <div class="artist-card-name">${a.artist || a.name}${a.artist ? `（${a.name}）` : ''}</div>
         <div class="artist-card-sub">${sub}</div>
       </div>
       ${actions}
     `;
-    el.artistList.appendChild(card);
+    list.appendChild(card);
   }
 }
 
-function approveArtist(id: string) {
-  const a = store.artists[id];
+async function approveArtist(id: string) {
+  if (!isAdmin) { showToast('⚠️ 管理者ログインが必要です', 'error'); return; }
+  const a = state.artists[id];
   if (!a) return;
-  a.status = "approved";
-  store.artists[id] = a;
-  saveStore();
+
+  a.status = 'approved';
+  commit();
   updatePendingBadge();
   renderArtistList();
-  showToast(`✅ ${a.artist || a.name} を承認しました（DEMO）`, "success");
+  showToast(`✅（デモ）${a.artist || a.name} を承認しました`, 'success');
 }
-
-function rejectArtist(id: string) {
-  const a = store.artists[id];
+async function rejectArtist(id: string) {
+  if (!isAdmin) { showToast('⚠️ 管理者ログインが必要です', 'error'); return; }
+  const a = state.artists[id];
   if (!a) return;
-  // soft confirm
-  ui.pendingConfirm = null;
-  openConfirm(
-    "却下して削除しますか？（DEMO）",
-    `「${a.artist || a.name}」を却下・削除します。`,
-    "削除する",
-    () => {
-      delete store.artists[id];
-      saveStore();
-      closeConfirm();
-      updatePendingBadge();
-      renderArtistList();
-      showToast("🗑️ 却下しました（DEMO）", "cancel");
-    }
-  );
+
+  if (confirm(`「${a.artist || a.name}」を却下・削除しますか？（デモ）`)) {
+    delete state.artists[id];
+    commit();
+    updatePendingBadge();
+    renderArtistList();
+    showToast('🗑️（デモ）却下しました', 'cancel');
+  }
 }
 
-/* ---------------------------
- * Admin: Reservations list
- * --------------------------- */
-function renderReservationsList() {
-  const sorted = Object.values(store.reservations).sort((a, b) => a.dateKey.localeCompare(b.dateKey));
-  if (!sorted.length) {
-    el.resList.innerHTML = `<div class="no-data">現在の予約はありません</div>`;
-    return;
-  }
+(Object.assign(window as any, {
+  approveArtist,
+  rejectArtist,
+}));
 
-  el.resList.innerHTML = "";
+// ============================
+// Reservation list
+// ============================
+function renderResList() {
+  const list = el<HTMLDivElement>('resList');
+  const sorted = Object.values(state.reservations).sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+
+  if (!sorted.length) { list.innerHTML = '<div class="no-data">現在の予約はありません</div>'; return; }
+  list.innerHTML = '';
+
   for (const r of sorted) {
-    const slot = SLOTS.find((s) => s.id === r.slotId)!;
-    const [y, m, d] = r.dateKey.split("-");
-    const item = document.createElement("div");
-    item.className = "res-item";
+    const slot = SLOTS.find(s => s.id === r.slotId)!;
+    const [, m, d] = r.dateKey.split('-');
+    const safeName = (r.artistName || r.name).replace(/'/g, "\\'");
+
+    const item = document.createElement('div');
+    item.className = 'res-item';
     item.innerHTML = `
       <span class="res-date">${parseInt(m, 10)}/${parseInt(d, 10)}</span>
       <span class="res-time">${slot.time}</span>
-      <span class="res-name">${escapeHtml(r.artistName || r.name)}</span>
-      <button class="res-cancel-btn" type="button" data-action="cancel-res" data-id="${r.id}">キャンセル</button>
+      <span class="res-name">${r.artistName || r.name}</span>
+      <button class="res-cancel-btn" onclick="confirmCancel('${r.id}','${safeName}','${slot.time}')">キャンセル</button>
     `;
-    el.resList.appendChild(item);
+    list.appendChild(item);
   }
 }
 
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, (c) => {
-    switch (c) {
-      case "&": return "&amp;";
-      case "<": return "&lt;";
-      case ">": return "&gt;";
-      case '"': return "&quot;";
-      case "'": return "&#39;";
-      default: return c;
-    }
-  });
-}
-
-/* ---------------------------
- * Admin: Slot management
- * --------------------------- */
-function enforceDateInputsMax() {
-  const maxKey = limitMaxKey();
-  el.slotMgmtDate.max = maxKey;
-  el.periodStart.max = maxKey;
-  el.periodEnd.max = maxKey;
-
-  // default values
-  const now = new Date();
-  const todayKey = fmtKey(now.getFullYear(), now.getMonth() + 1, now.getDate());
-  el.slotMgmtDate.value = el.slotMgmtDate.value || todayKey;
-}
-
+// ============================
+// Slot Management (admin)
+// ============================
 function renderSlotMgmt() {
-  enforceDateInputsMax();
-  const dateVal = el.slotMgmtDate.value;
-  if (!dateVal) return;
+  const maxKey = limitMaxKey();
 
-  if (dateVal > limitMaxKey()) {
-    showToast("⚠️ 枠管理は3ヶ月先までしか設定できません", "error");
-    el.slotMgmtDate.value = limitMaxKey();
-  }
+  const slotDate = el<HTMLInputElement>('slotMgmtDate');
+  slotDate.max = maxKey;
 
-  const dateKey = el.slotMgmtDate.value;
-  el.slotToggleGrid.innerHTML = "";
+  if (!slotDate.value) slotDate.value = fmtKey(currentYear, currentMonth + 1, new Date().getDate());
+  if (slotDate.value > maxKey) slotDate.value = maxKey;
+
+  const dateVal = slotDate.value;
+  const grid = el<HTMLDivElement>('slotToggleGrid');
+  grid.innerHTML = '';
 
   for (const slot of SLOTS) {
-    const closed = isClosed(dateKey, slot.id);
-    const card = document.createElement("div");
-    card.className = "slot-toggle-card" + (closed ? " closed-card" : "");
+    const closed = isClosed(dateVal, slot.id);
+    const card = document.createElement('div');
+    card.className = 'slot-toggle-card' + (closed ? ' closed-card' : '');
     card.innerHTML = `
       <div class="slot-toggle-time">${slot.time}</div>
       <div class="slot-toggle-label">${slot.label}</div>
-      <button class="slot-toggle-btn ${closed ? "btn-open" : "btn-close"}" type="button"
-        data-action="toggle-slot" data-date="${dateKey}" data-slot="${slot.id}">
-        ${closed ? "✅ オープンにする" : "🚫 クローズにする"}
+      <button class="slot-toggle-btn ${closed ? 'btn-open' : 'btn-close'}"
+        onclick="toggleSlot('${dateVal}','${slot.id}')">
+        ${closed ? '✅ オープンにする' : '🚫 クローズにする'}
       </button>
     `;
-    el.slotToggleGrid.appendChild(card);
+    grid.appendChild(card);
   }
 }
 
-function toggleSlot(dateKey: string, slotId: SlotId) {
-  if (dateKey > limitMaxKey()) {
-    showToast("⚠️ 3ヶ月先までしか操作できません", "error");
-    return;
-  }
+async function toggleSlot(dateKey: string, slotId: SlotId) {
+  const maxKey = limitMaxKey();
+  if (dateKey > maxKey) { showToast('⚠️ 3ヶ月先までしか操作できません', 'error'); return; }
+  if (!isAdmin) { showToast('⚠️ 管理者ログインが必要です', 'error'); return; }
+
   const k = slotKey(dateKey, slotId);
-  const willClose = !store.closedSlots[k];
-  if (willClose) store.closedSlots[k] = true;
-  else delete store.closedSlots[k];
-  saveStore();
+  const willClose = !state.closedSlots[k];
 
+  if (willClose) state.closedSlots[k] = true;
+  else delete state.closedSlots[k];
+
+  commit();
   renderSlotMgmt();
   renderCalendar();
-  showToast(willClose ? "🚫 クローズしました（DEMO）" : "✅ オープンにしました（DEMO）", willClose ? "cancel" : "success");
+  showToast(willClose ? '🚫（デモ）クローズしました' : '✅（デモ）オープンにしました', willClose ? 'cancel' : 'success');
 }
 
-function bulkOpen(dateKey: string) {
-  if (dateKey > limitMaxKey()) { showToast("⚠️ 3ヶ月先までしか操作できません", "error"); return; }
-  for (const s of SLOTS) {
-    delete store.closedSlots[slotKey(dateKey, s.id)];
-  }
-  saveStore();
+async function bulkOpen() {
+  const d = el<HTMLInputElement>('slotMgmtDate').value;
+  const maxKey = limitMaxKey();
+  if (d > maxKey) { showToast('⚠️ 3ヶ月先までしか操作できません', 'error'); return; }
+  if (!isAdmin) { showToast('⚠️ 管理者ログインが必要です', 'error'); return; }
+
+  for (const s of SLOTS) delete state.closedSlots[slotKey(d, s.id)];
+  commit();
   renderSlotMgmt();
   renderCalendar();
-  showToast("✅ 全枠をオープンにしました（DEMO）", "success");
-}
-function bulkClose(dateKey: string) {
-  if (dateKey > limitMaxKey()) { showToast("⚠️ 3ヶ月先までしか操作できません", "error"); return; }
-  for (const s of SLOTS) {
-    store.closedSlots[slotKey(dateKey, s.id)] = true;
-  }
-  saveStore();
-  renderSlotMgmt();
-  renderCalendar();
-  showToast("🚫 全枠をクローズしました（DEMO）", "cancel");
+  showToast('✅（デモ）全枠をオープンにしました', 'success');
 }
 
+async function bulkClose() {
+  const d = el<HTMLInputElement>('slotMgmtDate').value;
+  const maxKey = limitMaxKey();
+  if (d > maxKey) { showToast('⚠️ 3ヶ月先までしか操作できません', 'error'); return; }
+  if (!isAdmin) { showToast('⚠️ 管理者ログインが必要です', 'error'); return; }
+
+  for (const s of SLOTS) state.closedSlots[slotKey(d, s.id)] = true;
+  commit();
+  renderSlotMgmt();
+  renderCalendar();
+  showToast('🚫（デモ）全枠をクローズしました', 'cancel');
+}
+
+(Object.assign(window as any, {
+  renderSlotMgmt,
+  toggleSlot,
+  bulkOpen,
+  bulkClose,
+}));
+
+// period bulk (admin)
 async function periodBulk(isClose: boolean) {
-  const startVal = el.periodStart.value;
-  const endVal = el.periodEnd.value;
+  const startVal = el<HTMLInputElement>('periodStart').value;
+  const endVal = el<HTMLInputElement>('periodEnd').value;
   const maxKey = limitMaxKey();
 
-  if (!startVal || !endVal) { showToast("⚠️ 開始日と終了日を入力してください", "error"); return; }
-  if (startVal > endVal) { showToast("⚠️ 終了日は開始日より後にしてください", "error"); return; }
-  if (startVal > maxKey || endVal > maxKey) { showToast("⚠️ 期間一括は3ヶ月先までしか設定できません", "error"); return; }
+  if (!isAdmin) { showToast('⚠️ 管理者ログインが必要です', 'error'); return; }
+  if (!startVal || !endVal) { showToast('⚠️ 開始日と終了日を入力してください', 'error'); return; }
+  if (startVal > endVal) { showToast('⚠️ 終了日は開始日より後にしてください', 'error'); return; }
+  if (startVal > maxKey || endVal > maxKey) { showToast('⚠️ 期間一括は3ヶ月先までです', 'error'); return; }
 
-  const checkedDows = Array.from(document.querySelectorAll<HTMLInputElement>(".period-dow-grid input:checked"))
-    .map((x) => parseInt(x.value, 10));
+  const checkedDows = [...document.querySelectorAll<HTMLInputElement>('.period-dow-grid input:checked')]
+    .map(n => parseInt(n.value, 10));
   const targetDows = checkedDows.length ? checkedDows : [0,1,2,3,4,5,6];
 
-  const checkedSlots = Array.from(document.querySelectorAll<HTMLInputElement>(".period-slot-grid input:checked"))
-    .map((x) => x.value as SlotId);
-  const targetSlots = checkedSlots.length ? checkedSlots : SLOTS.map((s) => s.id);
+  const checkedSlots = [...document.querySelectorAll<HTMLInputElement>('.period-slot-grid input:checked')]
+    .map(n => n.value as SlotId);
+  const targetSlots = checkedSlots.length ? checkedSlots : (SLOTS.map(s => s.id));
 
   const dates: string[] = [];
   const cur = new Date(startVal);
@@ -1241,172 +1074,78 @@ async function periodBulk(isClose: boolean) {
     cur.setDate(cur.getDate() + 1);
   }
 
-  if (!dates.length) { showToast("⚠️ 対象日が見つかりません", "error"); return; }
+  if (!dates.length) { showToast('⚠️ 対象日が見つかりません', 'error'); return; }
 
   const total = dates.length * targetSlots.length;
+  const prog = el<HTMLDivElement>('periodProgress');
+  prog.style.display = 'block';
   let done = 0;
 
-  el.periodProgress.style.display = "block";
   showLoading(true);
-
-  // simulate progress (still fast, but gives “ちゃんとしてる感”)
   for (const dateKey of dates) {
     for (const slotId of targetSlots) {
       const k = slotKey(dateKey, slotId);
-      if (isClose) store.closedSlots[k] = true;
-      else delete store.closedSlots[k];
+      if (isClose) state.closedSlots[k] = true;
+      else delete state.closedSlots[k];
+
       done++;
-      el.periodProgress.textContent = `処理中... ${done} / ${total} 件`;
-      // tiny yield for UI
-      await new Promise((r) => setTimeout(r, 6));
+      prog.textContent = `処理中... ${done} / ${total} 件`;
+      // tiny yield
+      if (done % 20 === 0) await new Promise(r => setTimeout(r, 0));
     }
   }
-
-  saveStore();
+  commit();
   showLoading(false);
 
-  el.periodProgress.textContent = `✅ ${total}件の設定が完了しました`;
-  setTimeout(() => (el.periodProgress.style.display = "none"), 2600);
+  prog.textContent = `✅ ${total}件の設定が完了しました`;
+  setTimeout(() => { prog.style.display = 'none'; }, 2500);
 
   renderSlotMgmt();
   renderCalendar();
-  showToast(`${isClose ? "🚫 クローズ" : "✅ オープン"} を一括設定しました（DEMO）`, isClose ? "cancel" : "success");
+  showToast(`${isClose ? '🚫（デモ）クローズ' : '✅（デモ）オープン'} を一括設定しました`, isClose ? 'cancel' : 'success');
 }
 
-/* ---------------------------
- * Event wiring
- * --------------------------- */
-function bindEvents() {
-  // Calendar nav
-  el.btnPrevMonth.addEventListener("click", () => changeMonth(-1));
-  el.btnNextMonth.addEventListener("click", () => changeMonth(1));
+(Object.assign(window as any, {
+  periodBulk,
+}));
 
-  // Tabs
-  el.tabCalendar.addEventListener("click", () => switchTab("calendar"));
-  el.tabSlots.addEventListener("click", () => ui.isAdmin && switchTab("slots"));
-  el.tabArtists.addEventListener("click", () => ui.isAdmin && switchTab("artists"));
-  el.tabReservations.addEventListener("click", () => ui.isAdmin && switchTab("reservations"));
-
-  // Modal close: close button + outside click
-  el.modalOverlay.addEventListener("click", (ev) => {
-    if (ev.target === el.modalOverlay) closeModal();
-  });
-  // Close button
-  el.modalOverlay.querySelector<HTMLButtonElement>(".modal-close")?.addEventListener("click", () => closeModal());
-
-  // Lookup / proceed
-  el.modalOverlay.querySelector<HTMLButtonElement>(".btn-lookup")?.addEventListener("click", () => lookupArtist());
-  el.btnProceed.addEventListener("click", () => proceedToStep2());
-
-  // Step2 buttons
-  el.modalOverlay.querySelector<HTMLButtonElement>(".btn-back")?.addEventListener("click", () => backToStep1());
-  el.modalOverlay.querySelector<HTMLButtonElement>(".btn-submit")?.addEventListener("click", () => submitReservationRequest());
-
-  // New artist submit
-  el.modalOverlay.querySelector<HTMLButtonElement>(".btn-register")?.addEventListener("click", () => submitNewArtist());
-
-  // Input “has-value” visuals
-  el.fInstagram.addEventListener("input", () => onSnsInput("instagram"));
-  el.fTiktok.addEventListener("input", () => onSnsInput("tiktok"));
-  el.fYoutube.addEventListener("input", () => onSnsInput("youtube"));
-  el.fTwitter.addEventListener("input", () => onSnsInput("twitter"));
-  el.fVideoUrl.addEventListener("input", () => onVideoInput());
-  el.fVideoLineId.addEventListener("input", () => onVideoInput());
-
-  // Confirm overlay close (no button)
-  el.confirmOverlay.querySelector<HTMLButtonElement>(".btn-no")?.addEventListener("click", () => closeConfirm());
-
-  // Admin button
-  el.adminBtn.addEventListener("click", () => {
-    if (ui.isAdmin) {
-      setAdminUI(false);
-      showToast("🔒 管理者をログアウトしました（DEMO）");
-    } else {
-      openAdminLogin();
-    }
-  });
-
-  // Admin overlay buttons
-  el.adminOverlay.querySelector<HTMLButtonElement>(".btn-no")?.addEventListener("click", () => closeAdminLogin());
-  el.adminOverlay.querySelector<HTMLButtonElement>(".btn-yes")?.addEventListener("click", () => submitAdminLogin());
-  el.adminPasswordInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") submitAdminLogin();
-  });
-
-  // Admin: Artist list (delegation)
-  el.artistList.addEventListener("click", (ev) => {
-    const t = ev.target as HTMLElement;
-    const btn = t.closest<HTMLButtonElement>("button[data-action]");
-    if (!btn) return;
-    const action = btn.dataset.action;
-    const id = btn.dataset.id;
-    if (!id) return;
-    if (action === "approve") approveArtist(id);
-    if (action === "reject") rejectArtist(id);
-  });
-
-  // Admin: reservations list cancel (delegation)
-  el.resList.addEventListener("click", (ev) => {
-    const t = ev.target as HTMLElement;
-    const btn = t.closest<HTMLButtonElement>("button[data-action='cancel-res']");
-    if (!btn) return;
-    const id = btn.dataset.id;
-    if (!id) return;
-    requestCancelReservation(id);
-  });
-
-  // Admin: slot mgmt controls
-  el.slotMgmtDate.addEventListener("change", () => renderSlotMgmt());
-
-  // slot toggle button delegation
-  el.slotToggleGrid.addEventListener("click", (ev) => {
-    const t = ev.target as HTMLElement;
-    const btn = t.closest<HTMLButtonElement>("button[data-action='toggle-slot']");
-    if (!btn) return;
-    const dateKey = btn.dataset.date!;
-    const slotId = btn.dataset.slot as SlotId;
-    toggleSlot(dateKey, slotId);
-  });
-
-  // bulk buttons in slots panel (find by text labels)
-  el.pageSlots.addEventListener("click", (ev) => {
-    const t = ev.target as HTMLElement;
-    const b = t.closest<HTMLButtonElement>("button.bulk-btn");
-    if (!b) return;
-
-    const dateKey = el.slotMgmtDate.value;
-    if (!dateKey) return;
-
-    if (b.textContent?.includes("全枠オープン")) bulkOpen(dateKey);
-    if (b.textContent?.includes("全枠クローズ")) bulkClose(dateKey);
-
-    if (b.textContent?.includes("期間内を一括オープン")) void periodBulk(false);
-    if (b.textContent?.includes("期間内を一括クローズ")) void periodBulk(true);
-  });
-}
-
-/* ---------------------------
- * Init
- * --------------------------- */
-function init() {
-  showLoading(true);
-
-  seedIfNeeded();
-  store = loadStore();
-
-  // initial date inputs
-  enforceDateInputsMax();
-
-  // initial UI
+// ============================
+// Reset demo (optional helper)
+// ============================
+function resetDemo() {
+  if (!confirm('デモデータを初期化しますか？（このブラウザの保存が消えます）')) return;
+  state = seedState();
+  commit();
+  showToast('♻️ デモデータを初期化しました', 'success');
   updatePendingBadge();
-  setAdminUI(false);
-  switchTab("calendar");
   renderCalendar();
+  if (isAdmin) renderSlotMgmt();
+}
+(Object.assign(window as any, { resetDemo }));
 
-  bindEvents();
+// ============================
+// Init
+// ============================
+function init() {
+  // attach some missing inline handlers that are used in HTML ids
+  // (HTML already calls these names; we exposed them via window.)
 
-  showLoading(false);
-  showToast("✅ DEMO準備OK（予約はlocalStorageのみ）", "success");
+  // date inputs max
+  const maxKey = limitMaxKey();
+  el<HTMLInputElement>('periodStart').max = maxKey;
+  el<HTMLInputElement>('periodEnd').max = maxKey;
+
+  // Start month = current month
+  const now = new Date();
+  currentYear = now.getFullYear();
+  currentMonth = now.getMonth();
+
+  updatePendingBadge();
+  renderCalendar();
+  switchTab('calendar');
+
+  // small hint for demo mode
+  showToast('🧪 デモモード：予約/登録はこのブラウザ内だけに保存されます', 'pending');
 }
 
 init();
