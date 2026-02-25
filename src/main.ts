@@ -1148,4 +1148,43 @@ function init() {
   showToast('🧪 デモモード：予約/登録はこのブラウザ内だけに保存されます', 'pending');
 }
 
+// 例: 要素ID/クラスはあなたのHTMLに合わせて調整してOK
+const slotsModal = document.getElementById('slots-modal') as HTMLElement | null;
+const slotsModalOverlay = document.getElementById('slots-modal-overlay') as HTMLElement | null;
+
+function closeSlotsModal() {
+  // モーダルを隠す（あなたの実装に合わせてどれか）
+  slotsModal?.classList.remove('is-open');
+  slotsModalOverlay?.classList.remove('is-open');
+
+  // もし style で出してるなら：
+  // slotsModal && (slotsModal.style.display = 'none');
+  // slotsModalOverlay && (slotsModalOverlay.style.display = 'none');
+
+  // bodyスクロールロックしてるなら解除
+  document.body.classList.remove('modal-open');
+}
+
+// ✅ イベント委譲：svg/path をクリックしても拾えるので最強
+document.addEventListener('click', (e) => {
+  const t = e.target as HTMLElement;
+
+  // ❌ボタン
+  if (t.closest('[data-action="close-slots-modal"]')) {
+    closeSlotsModal();
+    return;
+  }
+
+  // 背景クリックでも閉じたいなら（任意）
+  if (slotsModalOverlay && t === slotsModalOverlay) {
+    closeSlotsModal();
+    return;
+  }
+});
+
+// Escで閉じたいなら（任意）
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSlotsModal();
+});
+
 init();
