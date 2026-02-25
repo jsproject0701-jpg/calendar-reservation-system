@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>徳山駅前｜路上ライブスペース予約（DEMO）</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+
+  <style>
+/* ======= 元CSSそのまま（省略せず全部入れてOK） ======= */
+:root {
+  --sky:#3b9edd; --sky-light:#7ec8f0; --sky-deep:#1a6fa8;
+  --sky-pale:#e8f5fd; --sky-mid:#c4e8f8;
+  --gray-50:#f8fafc; --gray-100:#f0f4f8; --gray-200:#e2e8f0;
+  --gray-300:#b0c4d8; --gray-500:#6b8299; --gray-700:#3d5166; --gray-900:#1a2b3a;
+  --green:#10b981; --green-pale:#ecfdf5; --green-mid:#a7f3d0;
+  --orange:#f59e0b; --orange-pale:#fffbeb; --red:#ef4444;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Noto Sans JP',sans-serif;background:linear-gradient(160deg,#dff0fa 0%,#f0f8ff 40%,#e8f4fd 100%);min-height:100vh;color:var(--gray-900);}
+
+/* HEADER */
+header{background:linear-gradient(135deg,var(--sky-deep) 0%,var(--sky) 60%,var(--sky-light) 100%);padding:26px 32px 22px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 20px rgba(59,158,221,.25);position:relative;overflow:hidden;}
+header::before{content:'';position:absolute;width:300px;height:300px;background:rgba(255,255,255,.06);border-radius:50%;right:-80px;top:-120px;}
+header::after{content:'';position:absolute;width:180px;height:180px;background:rgba(255,255,255,.08);border-radius:50%;right:120px;top:-60px;}
+.logo{display:flex;align-items:center;gap:14px;}
+.logo-icon{width:46px;height:46px;background:rgba(255,255,255,.2);border-radius:14px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.3);font-size:22px;}
+.logo-text h1{font-family:'DM Serif Display',serif;color:#fff;font-size:1.4rem;letter-spacing:.02em;}
+.logo-text p{color:rgba(255,255,255,.85);font-size:.72rem;font-weight:300;letter-spacing:.08em;}
+.header-badge{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:.72rem;padding:6px 14px;border-radius:20px;backdrop-filter:blur(10px);font-weight:500;}
+
+main{max-width:980px;margin:0 auto;padding:28px 18px 80px;}
+
+/* TABS */
+.tab-nav{display:flex;gap:4px;background:#fff;border-radius:14px;padding:5px;margin-bottom:20px;box-shadow:0 2px 12px rgba(59,158,221,.08);border:1px solid var(--sky-mid);}
+.tab-btn{flex:1;padding:11px 8px;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:600;color:var(--gray-500);background:transparent;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px;}
+.tab-btn.active{background:linear-gradient(135deg,var(--sky-deep),var(--sky));color:#fff;box-shadow:0 3px 12px rgba(59,158,221,.3);}
+.badge{background:var(--orange);color:#fff;font-size:.64rem;min-width:17px;height:17px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;}
+.tab-btn.active .badge{background:rgba(255,255,255,.3);}
+
+/* CALENDAR */
+.calendar-card{background:#fff;border-radius:18px;box-shadow:0 4px 28px rgba(59,158,221,.1);overflow:hidden;border:1px solid var(--sky-mid);}
+.cal-header{background:linear-gradient(135deg,#1e7fc0,var(--sky));padding:18px 26px;display:flex;align-items:center;justify-content:space-between;}
+.cal-nav{display:flex;align-items:center;gap:14px;}
+.cal-nav button{width:34px;height:34px;border-radius:50%;border:1.5px solid rgba(255,255,255,.4);background:rgba(255,255,255,.15);color:#fff;font-size:1rem;cursor:pointer;transition:background .2s;display:flex;align-items:center;justify-content:center;}
+.cal-nav button:hover{background:rgba(255,255,255,.3);}
+.cal-nav button:disabled{opacity:.4;cursor:not-allowed;}
+.cal-month{font-family:'DM Serif Display',serif;color:#fff;font-size:1.45rem;min-width:155px;text-align:center;}
+.cal-legend{display:flex;gap:14px;}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:.7rem;color:rgba(255,255,255,.9);}
+.legend-dot{width:9px;height:9px;border-radius:50%;}
+.legend-dot.available{background:rgba(255,255,255,.9);}
+.legend-dot.partial{background:rgba(255,255,255,.5);border:1.5px solid rgba(255,255,255,.7);}
+.legend-dot.full{background:rgba(255,255,255,.2);}
+.cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);background:var(--sky-pale);border-bottom:1px solid var(--sky-mid);}
+.cal-weekday{text-align:center;padding:11px 0;font-size:.73rem;font-weight:700;color:var(--sky-deep);letter-spacing:.06em;}
+.cal-weekday.sun{color:#e07070;} .cal-weekday.sat{color:var(--sky);}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);padding:6px;background:var(--gray-50);}
+.cal-day{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:11px;margin:3px;cursor:pointer;transition:all .18s;background:#fff;border:1.5px solid transparent;gap:4px;}
+.cal-day:hover:not(.empty):not(.past):not(.closed){transform:translateY(-2px);box-shadow:0 6px 18px rgba(59,158,221,.2);border-color:var(--sky-light);}
+.cal-day.empty{background:transparent;border-color:transparent;cursor:default;}
+.cal-day.past{opacity:.35;cursor:not-allowed;}
+.cal-day.today{border-color:var(--sky);box-shadow:0 0 0 3px rgba(59,158,221,.15);}
+.cal-day.full{background:var(--gray-50);border-color:var(--gray-100);}
+.cal-day.full .day-num{color:var(--gray-300);}
+.cal-day.closed{background:var(--gray-50);border-color:var(--gray-200);cursor:not-allowed;opacity:.5;}
+/* ★追加：未来（3ヶ月超）は見た目も無効化 */
+.cal-day.too-future{opacity:.35;cursor:not-allowed;background:var(--gray-50);border-color:var(--gray-200);}
+.day-num{font-size:.96rem;font-weight:600;color:var(--gray-700);line-height:1;}
+.cal-day.sun .day-num{color:#e07070;} .cal-day.sat .day-num{color:var(--sky-deep);} .cal-day.today .day-num{color:var(--sky-deep);}
+.slot-dots{display:flex;gap:2px;}
+.slot-dot{width:6px;height:6px;border-radius:50%;background:var(--sky-mid);}
+.slot-dot.booked{background:var(--sky);}
+.slot-dot.closed-dot{background:var(--gray-200);}
+
+/* PANELS */
+.panel{background:#fff;border-radius:18px;padding:22px 26px;box-shadow:0 2px 18px rgba(59,158,221,.08);border:1px solid var(--sky-mid);}
+.panel-title{display:flex;align-items:center;gap:9px;font-size:.93rem;font-weight:700;color:var(--sky-deep);margin-bottom:16px;}
+
+/* SLOT MANAGEMENT */
+.slot-mgmt-header{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
+.slot-mgmt-header label{font-size:.8rem;font-weight:600;color:var(--gray-500);}
+.slot-mgmt-header input[type=date]{border:1.5px solid var(--sky-mid);border-radius:9px;padding:8px 12px;font-size:.84rem;font-family:inherit;outline:none;color:var(--gray-900);}
+.slot-mgmt-header .hint{font-size:.72rem;color:var(--gray-300);}
+.slot-toggle-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+@media(min-width:600px){.slot-toggle-grid{grid-template-columns:repeat(4,1fr);}}
+.slot-toggle-card{border:1.5px solid var(--sky-mid);border-radius:12px;padding:14px;background:var(--sky-pale);text-align:center;}
+.slot-toggle-card.closed-card{background:var(--gray-50);border-color:var(--gray-200);opacity:.65;}
+.slot-toggle-time{font-size:.82rem;font-weight:700;color:var(--sky-deep);margin-bottom:4px;}
+.slot-toggle-card.closed-card .slot-toggle-time{color:#94a3b8;}
+.slot-toggle-label{font-size:.72rem;color:var(--gray-500);margin-bottom:10px;}
+.slot-toggle-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 14px;border-radius:20px;font-size:.73rem;font-weight:700;font-family:inherit;border:none;cursor:pointer;transition:all .15s;}
+.btn-open{background:linear-gradient(135deg,var(--sky-deep),var(--sky));color:#fff;box-shadow:0 2px 8px rgba(59,158,221,.3);}
+.btn-close{background:var(--gray-100);color:var(--gray-500);}
+.bulk-actions{display:flex;gap:8px;margin-top:14px;}
+.bulk-btn{padding:8px 18px;border:1.5px solid var(--sky-mid);border-radius:9px;background:#fff;color:var(--sky-deep);font-size:.77rem;font-weight:700;font-family:inherit;cursor:pointer;transition:all .15s;}
+.bulk-btn:hover{background:var(--sky-pale);}
+.bulk-btn.danger{border-color:#fca5a5;color:var(--red);}
+.bulk-btn.danger:hover{background:#fef2f2;}
+
+/* ARTIST LIST */
+.artist-cards{display:flex;flex-direction:column;gap:10px;}
+.artist-card{display:flex;align-items:center;gap:13px;padding:13px 15px;border-radius:12px;border:1.5px solid var(--sky-mid);background:var(--sky-pale);}
+.artist-card.pending-card{background:var(--orange-pale);border-color:#fde68a;}
+.artist-avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--sky-deep),var(--sky-light));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.96rem;flex-shrink:0;}
+.artist-card.pending-card .artist-avatar{background:linear-gradient(135deg,#d97706,var(--orange));}
+.artist-card-info{flex:1;min-width:0;}
+.artist-card-name{font-weight:700;font-size:.87rem;color:var(--gray-900);}
+.artist-card-sub{font-size:.71rem;color:var(--gray-500);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.artist-actions{display:flex;gap:6px;flex-shrink:0;}
+.btn-approve{padding:6px 13px;background:var(--green);color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.73rem;font-weight:700;}
+.btn-approve:hover{background:#059669;}
+.btn-reject{padding:6px 11px;background:#fff;color:var(--red);border:1.5px solid #fca5a5;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.73rem;font-weight:700;}
+.btn-reject:hover{background:#fef2f2;}
+.status-approved{font-size:.71rem;font-weight:700;padding:4px 11px;border-radius:20px;background:var(--green-pale);color:var(--green);border:1px solid var(--green-mid);white-space:nowrap;}
+
+/* RES LIST */
+.res-list{display:flex;flex-direction:column;gap:8px;}
+.res-item{display:flex;align-items:center;gap:11px;padding:11px 13px;background:var(--sky-pale);border-radius:10px;border:1px solid var(--sky-mid);font-size:.81rem;}
+.res-date{font-weight:700;color:var(--sky-deep);min-width:58px;}
+.res-time{color:var(--gray-500);min-width:88px;font-size:.77rem;}
+.res-name{flex:1;font-weight:600;color:var(--gray-700);}
+.res-cancel-btn{background:none;border:1px solid #fca5a5;color:var(--red);font-size:.71rem;padding:4px 9px;border-radius:9px;cursor:pointer;font-family:inherit;}
+.res-cancel-btn:hover{background:#fef2f2;}
+.no-data{text-align:center;color:var(--gray-300);font-size:.84rem;padding:24px 0;}
+
+/* MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(15,40,65,.5);backdrop-filter:blur(4px);z-index:1000;align-items:center;justify-content:center;padding:16px;}
+.modal-overlay.show{display:flex;}
+@keyframes slideUp{from{transform:translateY(28px);opacity:0}to{transform:translateY(0);opacity:1}}
+.modal{background:#fff;border-radius:22px;width:100%;max-width:620px;max-height:92vh;overflow-y:auto;box-shadow:0 24px 56px rgba(10,40,80,.3);animation:slideUp .22s ease;}
+.modal-head{background:linear-gradient(135deg,#1e7fc0,var(--sky));padding:22px 26px 18px;border-radius:22px 22px 0 0;color:#fff;display:flex;justify-content:space-between;align-items:flex-start;}
+.modal-date{font-family:'DM Serif Display',serif;font-size:1.55rem;}
+.modal-date-sub{font-size:.76rem;color:rgba(255,255,255,.8);margin-top:2px;}
+.modal-close{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.2);border:none;color:#fff;font-size:1.05rem;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.modal-close:hover{background:rgba(255,255,255,.35);}
+.modal-body{padding:22px 26px;}
+.slots-title{font-size:.78rem;font-weight:700;color:var(--gray-500);letter-spacing:.08em;margin-bottom:11px;}
+.slot-list{display:flex;flex-direction:column;gap:9px;margin-bottom:18px;}
+.slot-item{display:flex;align-items:center;gap:13px;padding:13px 15px;border-radius:11px;border:1.5px solid var(--sky-mid);background:var(--sky-pale);}
+.slot-item.booked-slot{background:var(--gray-50);border-color:var(--gray-100);}
+.slot-item.closed-slot{background:var(--gray-50);border-color:var(--gray-200);opacity:.55;}
+.slot-time{font-weight:700;font-size:.88rem;color:var(--sky-deep);min-width:90px;}
+.slot-item.booked-slot .slot-time,.slot-item.closed-slot .slot-time{color:var(--gray-500);}
+.slot-info{flex:1;}
+.slot-label{font-size:.79rem;font-weight:600;color:var(--gray-700);}
+.slot-sublabel{font-size:.7rem;color:var(--gray-500);}
+.slot-action-btn{padding:7px 17px;border-radius:19px;font-size:.76rem;font-weight:700;cursor:pointer;border:none;transition:all .15s;font-family:inherit;white-space:nowrap;}
+.btn-reserve{background:linear-gradient(135deg,var(--sky),var(--sky-light));color:#fff;box-shadow:0 3px 10px rgba(59,158,221,.3);}
+.btn-reserve:hover{transform:translateY(-1px);}
+.btn-cancel{background:#fff;color:var(--red);border:1.5px solid #fca5a5;}
+.btn-cancel:hover{background:#fef2f2;}
+.btn-disabled{background:var(--gray-100);color:var(--gray-300);cursor:default;font-size:.7rem;}
+
+/* STEPS */
+.step-indicator{display:flex;align-items:center;margin-bottom:18px;border-bottom:1.5px solid var(--sky-pale);padding-bottom:15px;}
+.step{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;}
+.step-circle{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;background:var(--gray-100);color:var(--gray-300);transition:all .3s;}
+.step.active .step-circle{background:linear-gradient(135deg,var(--sky-deep),var(--sky));color:#fff;box-shadow:0 3px 10px rgba(59,158,221,.3);}
+.step.done .step-circle{background:var(--green);color:#fff;}
+.step-label{font-size:.63rem;color:var(--gray-300);font-weight:500;text-align:center;}
+.step.active .step-label{color:var(--sky-deep);font-weight:700;}
+.step.done .step-label{color:var(--green);}
+.step-line{height:2px;background:var(--gray-100);flex:1;margin-bottom:13px;}
+.step-line.done{background:var(--green);}
+
+/* FORM */
+.form-section{display:none;}
+.form-section.show{display:block;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media(max-width:560px){.two-col{grid-template-columns:1fr;}}
+.col-card{border:1.5px solid var(--sky-mid);border-radius:14px;padding:16px;background:var(--sky-pale);}
+.col-card-title{font-size:.8rem;font-weight:700;color:var(--sky-deep);margin-bottom:12px;display:flex;align-items:center;gap:7px;}
+.col-card-title .subtitle{font-size:.68rem;color:var(--gray-500);font-weight:400;}
+.lookup-input{width:100%;border:1.5px solid var(--sky-mid);border-radius:9px;padding:9px 12px;font-size:.83rem;font-family:inherit;outline:none;transition:border-color .2s;background:#fff;margin-bottom:9px;}
+.lookup-input:focus{border-color:var(--sky);box-shadow:0 0 0 3px rgba(59,158,221,.1);}
+.btn-lookup{width:100%;padding:9px;background:var(--sky);color:#fff;border:none;border-radius:9px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700;transition:background .15s;}
+.btn-lookup:hover{background:var(--sky-deep);}
+.artist-found-card{margin-top:10px;padding:11px 13px;background:var(--green-pale);border:1.5px solid var(--green-mid);border-radius:10px;display:none;}
+.artist-found-card.show{display:block;}
+.artist-found-row{display:flex;align-items:center;gap:9px;}
+.artist-found-icon{font-size:1.3rem;}
+.artist-found-info{flex:1;}
+.artist-found-name{font-weight:700;color:var(--gray-900);font-size:.85rem;}
+.artist-found-sub{font-size:.7rem;color:var(--gray-500);margin-top:1px;}
+.artist-found-badge{background:var(--green);color:#fff;font-size:.65rem;font-weight:700;padding:3px 9px;border-radius:11px;white-space:nowrap;}
+.artist-found-badge.pending-badge{background:var(--orange);}
+.btn-proceed{margin-top:10px;width:100%;padding:9px;background:linear-gradient(135deg,var(--sky-deep),var(--sky));color:#fff;border:none;border-radius:9px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:700;box-shadow:0 3px 10px rgba(59,158,221,.3);transition:all .2s;}
+.btn-proceed:hover{transform:translateY(-1px);}
+.btn-proceed:disabled{background:var(--gray-200);color:#94a3b8;cursor:default;transform:none;box-shadow:none;}
+.artist-not-found{margin-top:9px;padding:9px 12px;background:var(--orange-pale);border:1.5px solid #fde68a;border-radius:9px;display:none;font-size:.75rem;color:#92400e;line-height:1.5;}
+.artist-not-found.show{display:block;}
+.form-group{margin-bottom:10px;}
+.form-group label{display:block;font-size:.75rem;font-weight:600;color:var(--gray-700);margin-bottom:5px;}
+.required{color:var(--sky);font-size:.68rem;margin-left:3px;}
+.optional{color:var(--gray-300);font-size:.66rem;margin-left:3px;}
+.form-group input,.form-group textarea{width:100%;border:1.5px solid var(--sky-mid);border-radius:9px;padding:9px 12px;font-size:.83rem;font-family:inherit;outline:none;transition:border-color .2s,box-shadow .2s;background:#fff;color:var(--gray-900);}
+.form-group input:focus,.form-group textarea:focus{border-color:var(--sky);box-shadow:0 0 0 3px rgba(59,158,221,.1);}
+.form-group textarea{resize:vertical;min-height:60px;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.sns-required-note{font-size:.7rem;color:var(--orange);font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:5px;}
+.sns-grid{display:flex;flex-direction:column;gap:7px;}
+.sns-input-wrap{display:flex;align-items:center;border:1.5px solid var(--sky-mid);border-radius:9px;background:#fff;overflow:hidden;transition:border-color .2s;}
+.sns-input-wrap:focus-within{border-color:var(--sky);box-shadow:0 0 0 3px rgba(59,158,221,.1);}
+.sns-input-wrap.has-value{border-color:var(--green);}
+.sns-prefix{padding:8px 10px;background:var(--sky-pale);font-size:.75rem;font-weight:700;color:var(--sky-deep);white-space:nowrap;border-right:1.5px solid var(--sky-mid);}
+.sns-input-wrap input{border:none;flex:1;padding:8px 10px;font-size:.81rem;outline:none;font-family:inherit;}
+.video-or{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.video-option{border:1.5px solid var(--sky-mid);border-radius:10px;padding:10px 12px;background:#fff;transition:border-color .2s;}
+.video-option.selected{border-color:var(--sky);background:var(--sky-pale);}
+.video-option-label{font-size:.7rem;font-weight:700;color:var(--sky-deep);margin-bottom:5px;}
+.video-option input{width:100%;border:1.5px solid var(--sky-mid);border-radius:7px;padding:7px 9px;font-size:.79rem;font-family:inherit;outline:none;background:var(--sky-pale);transition:border-color .2s;}
+.video-option input:focus{border-color:var(--sky);}
+.btn-register{width:100%;padding:11px;background:linear-gradient(135deg,#d97706,var(--orange));color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:.85rem;font-weight:700;transition:all .2s;margin-top:10px;box-shadow:0 4px 14px rgba(245,158,11,.3);}
+.btn-register:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(245,158,11,.4);}
+.pending-inline{padding:12px 14px;background:var(--orange-pale);border:1.5px solid #fde68a;border-radius:10px;margin-top:10px;display:none;}
+.pending-inline.show{display:block;}
+.pending-inline-title{font-weight:700;color:#92400e;font-size:.83rem;margin-bottom:4px;}
+.pending-inline-text{font-size:.74rem;color:#78350f;line-height:1.6;}
+.step2-artist-card{display:flex;align-items:center;gap:11px;padding:12px 14px;background:var(--green-pale);border:1.5px solid var(--green-mid);border-radius:11px;margin-bottom:14px;}
+.step2-icon{font-size:1.4rem;}
+.step2-info{flex:1;}
+.step2-name{font-weight:700;font-size:.87rem;color:var(--gray-900);}
+.step2-sub{font-size:.71rem;color:var(--gray-500);margin-top:1px;}
+.btn-submit{width:100%;padding:13px;background:linear-gradient(135deg,var(--sky-deep),var(--sky));color:#fff;border:none;border-radius:11px;font-size:.91rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;margin-top:6px;box-shadow:0 4px 14px rgba(59,158,221,.35);}
+.btn-submit:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(59,158,221,.45);}
+.btn-back{width:100%;margin-top:8px;padding:9px;background:none;border:none;color:var(--gray-500);font-size:.8rem;cursor:pointer;font-family:inherit;}
+.divider{display:flex;align-items:center;gap:9px;margin:14px 0 12px;}
+.divider hr{flex:1;border:none;border-top:1.5px solid var(--sky-pale);}
+.divider span{font-size:.71rem;font-weight:700;color:var(--sky-deep);letter-spacing:.06em;white-space:nowrap;}
+
+/* CONFIRM */
+.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(15,40,65,.6);backdrop-filter:blur(4px);z-index:2000;align-items:center;justify-content:center;padding:18px;}
+.confirm-overlay.show{display:flex;}
+.confirm-box{background:#fff;border-radius:18px;padding:30px 26px;max-width:340px;width:100%;box-shadow:0 24px 56px rgba(10,40,80,.3);text-align:center;animation:slideUp .2s ease;}
+.confirm-icon{font-size:2.3rem;margin-bottom:11px;}
+.confirm-title{font-size:.97rem;font-weight:700;color:var(--gray-900);margin-bottom:7px;}
+.confirm-text{font-size:.8rem;color:var(--gray-500);line-height:1.6;margin-bottom:22px;white-space:pre-line;}
+.confirm-actions{display:flex;gap:9px;}
+.confirm-actions button{flex:1;padding:11px;border-radius:9px;font-size:.83rem;font-weight:600;cursor:pointer;font-family:inherit;border:none;}
+.btn-no{background:var(--gray-100);color:var(--gray-700);}
+.btn-yes{background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff;}
+
+/* TOAST */
+.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(100px);background:var(--gray-900);color:#fff;padding:13px 22px;border-radius:38px;font-size:.83rem;font-weight:500;z-index:9999;transition:transform .3s cubic-bezier(.34,1.56,.64,1);box-shadow:0 8px 28px rgba(0,0,0,.3);white-space:nowrap;}
+.toast.show{transform:translateX(-50%) translateY(0);}
+.toast.success{background:linear-gradient(135deg,#059669,#10b981);}
+.toast.cancel{background:linear-gradient(135deg,#b91c1c,#ef4444);}
+.toast.pending{background:linear-gradient(135deg,#d97706,#f59e0b);}
+.toast.error{background:linear-gradient(135deg,#b91c1c,#ef4444);}
+
+/* LOADING */
+.loading-overlay{display:none;position:fixed;inset:0;background:rgba(15,40,65,.45);backdrop-filter:blur(3px);z-index:9000;align-items:center;justify-content:center;flex-direction:column;gap:14px;}
+.loading-overlay.show{display:flex;}
+.loading-spinner{width:44px;height:44px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;}
+.loading-text{color:#fff;font-size:.85rem;font-weight:600;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* PERIOD BULK */
+.period-form{display:flex;flex-direction:column;gap:16px;}
+.period-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.period-field{display:flex;flex-direction:column;gap:5px;}
+.period-field label{font-size:.75rem;font-weight:600;color:var(--gray-700);}
+.period-field input[type=date]{border:1.5px solid var(--sky-mid);border-radius:9px;padding:9px 12px;font-size:.84rem;font-family:inherit;outline:none;color:var(--gray-900);background:#fff;}
+.period-field input[type=date]:focus{border-color:var(--sky);}
+.period-sep{font-size:1.1rem;color:var(--gray-500);font-weight:700;margin-top:18px;}
+.period-label{font-size:.75rem;font-weight:600;color:var(--gray-700);display:block;margin-bottom:8px;}
+.period-dow-wrap{background:var(--sky-pale);border-radius:12px;padding:12px 14px;border:1.5px solid var(--sky-mid);}
+.period-dow-grid{display:flex;gap:8px;flex-wrap:wrap;}
+.period-slot-grid{display:flex;gap:8px;flex-wrap:wrap;}
+.dow-check{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 12px;border-radius:9px;border:1.5px solid var(--sky-mid);background:#fff;cursor:pointer;font-size:.8rem;font-weight:700;color:var(--gray-700);transition:all .15s;min-width:44px;text-align:center;}
+.dow-check input{display:none;}
+.dow-check:has(input:checked){background:var(--sky);border-color:var(--sky-deep);color:#fff;}
+.dow-check.sun:has(input:checked){background:#e07070;border-color:#c05050;color:#fff;}
+.dow-check.sat:has(input:checked){background:var(--sky-deep);border-color:#0f4a7a;color:#fff;}
+.period-actions{display:flex;gap:8px;flex-wrap:wrap;}
+
+@media(max-width:600px){
+  header{padding:16px 14px;} .cal-legend{display:none;}
+  main{padding:16px 10px 50px;} .form-row{grid-template-columns:1fr;}
+  .modal-body{padding:16px 16px;} .video-or{grid-template-columns:1fr;}
+  .two-col{grid-template-columns:1fr;} .period-row{flex-direction:column;align-items:flex-start;}
+  .period-sep{margin-top:0;}
+}
+/* =========================
+   iPhoneでカレンダー右端が切れる対策
+   ========================= */
+.calendar-card { width: 100%; max-width: 100%; }
+.cal-grid{
+  padding: 8px;
+  gap: 6px;
+  background: var(--gray-50);
+}
+.cal-day{
+  margin: 0 !important;
+  width: 100%;
+  min-width: 0;
+}
+@media (max-width: 420px){
+  .cal-grid{ padding: 6px; gap: 4px; }
+  .cal-weekday{ font-size: .7rem; padding: 10px 0; }
+}
+body{ overflow-x: hidden; }
+
+/* =========================
+   選択中スロットの強調（オレンジ系）
+   ========================= */
+.slot-item.selected-slot{
+  border-color: #f59e0b !important;
+  background: #fffbeb !important;
+  box-shadow: 0 10px 24px rgba(245,158,11,.18);
+  transform: translateY(-1px);
+}
+.slot-item.selected-slot .slot-time{ color: #b45309; }
+.slot-item.selected-slot .slot-label{ color: #92400e; font-weight: 800; }
+.slot-item.selected-slot .slot-action-btn.btn-reserve{
+  background: linear-gradient(135deg,#d97706,#f59e0b) !important;
+  box-shadow: 0 4px 14px rgba(245,158,11,.35);
+}
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🎵</div>
+      <div class="logo-text">
+        <h1>徳山駅前路上ライブスペース予約</h1>
+        <p>STREET LIVE SPACE RESERVATION</p>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="header-badge">路上ライブスペース予約（DEMO）</div>
+      <!-- デモ版：管理者ボタンは将来配線する想定（今はクリックしてもエラーにならないよう onclick なし） -->
+      <button id="adminBtn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:.72rem;padding:6px 14px;border-radius:20px;cursor:pointer;font-family:inherit;font-weight:500;backdrop-filter:blur(10px);transition:background .2s;">🔒 管理者</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="tab-nav">
+      <!-- デモ版：タブ切替ロジックは後でTSに移植する想定。今は表示固定でも壊れないよう onclick なし -->
+      <button class="tab-btn active" id="tabCalendar">📅 カレンダー予約</button>
+      <button class="tab-btn admin-tab" id="tabSlots" style="display:none">🔧 枠管理</button>
+      <button class="tab-btn admin-tab" id="tabArtists" style="display:none">
+        🔵 アーティスト管理
+        <span class="badge" id="pendingBadge" style="display:none">0</span>
+      </button>
+      <button class="tab-btn admin-tab" id="tabReservations" style="display:none">📋 予約一覧</button>
+    </div>
+
+    <!-- カレンダー -->
+    <div id="pageCalendar">
+      <div class="calendar-card">
+        <div class="cal-header">
+          <div class="cal-nav">
+            <button id="btnPrevMonth" type="button">&#8249;</button>
+            <div class="cal-month" id="calMonthLabel"></div>
+            <button id="btnNextMonth" type="button">&#8250;</button>
+          </div>
+          <div class="cal-legend">
+            <div class="legend-item"><div class="legend-dot available"></div>空きあり</div>
+            <div class="legend-item"><div class="legend-dot partial"></div>一部空き</div>
+            <div class="legend-item"><div class="legend-dot full"></div>満枠</div>
+          </div>
+        </div>
+        <div class="cal-weekdays">
+          <div class="cal-weekday sun">日</div><div class="cal-weekday">月</div><div class="cal-weekday">火</div>
+          <div class="cal-weekday">水</div><div class="cal-weekday">木</div><div class="cal-weekday">金</div>
+          <div class="cal-weekday sat">土</div>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+      </div>
+    </div>
+
+    <!-- 枠管理（デモでは非表示） -->
+    <div id="pageSlots" style="display:none">
+      <div class="panel" style="margin-bottom:14px;">
+        <div class="panel-title"><span>📅</span>1日単位の設定</div>
+        <div class="slot-mgmt-header">
+          <label>対象日を選択</label>
+          <input type="date" id="slotMgmtDate">
+          <span class="hint">※ 日付を選んで各時間帯を切り替えてください</span>
+        </div>
+        <div class="slot-toggle-grid" id="slotToggleGrid">
+          <div class="no-data">日付を選択してください</div>
+        </div>
+        <div class="bulk-actions">
+          <button class="bulk-btn" type="button">✅ この日を全枠オープン</button>
+          <button class="bulk-btn danger" type="button">🚫 この日を全枠クローズ</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title"><span>📆</span>期間指定で一括設定</div>
+        <div class="period-form">
+          <div class="period-row">
+            <div class="period-field">
+              <label>開始日</label>
+              <input type="date" id="periodStart">
+            </div>
+            <div class="period-sep">〜</div>
+            <div class="period-field">
+              <label>終了日</label>
+              <input type="date" id="periodEnd">
+            </div>
+          </div>
+
+          <div class="period-dow-wrap">
+            <label class="period-label">対象曜日（未選択 = 全曜日）</label>
+            <div class="period-dow-grid">
+              <label class="dow-check sun"><input type="checkbox" value="0"> 日</label>
+              <label class="dow-check"><input type="checkbox" value="1"> 月</label>
+              <label class="dow-check"><input type="checkbox" value="2"> 火</label>
+              <label class="dow-check"><input type="checkbox" value="3"> 水</label>
+              <label class="dow-check"><input type="checkbox" value="4"> 木</label>
+              <label class="dow-check"><input type="checkbox" value="5"> 金</label>
+              <label class="dow-check sat"><input type="checkbox" value="6"> 土</label>
+            </div>
+          </div>
+
+          <div class="period-dow-wrap">
+            <label class="period-label">対象時間帯（未選択 = 全時間帯）</label>
+            <div class="period-slot-grid">
+              <label class="dow-check" id="periodSlotCheck_A"><input type="checkbox" value="A"> 1<span style="font-size:.65rem;color:var(--gray-500);display:block;">17:00〜18:00</span></label>
+              <label class="dow-check" id="periodSlotCheck_B"><input type="checkbox" value="B"> 2<span style="font-size:.65rem;color:var(--gray-500);display:block;">18:00〜19:00</span></label>
+              <label class="dow-check" id="periodSlotCheck_C"><input type="checkbox" value="C"> 3<span style="font-size:.65rem;color:var(--gray-500);display:block;">19:00〜20:00</span></label>
+              <label class="dow-check" id="periodSlotCheck_D"><input type="checkbox" value="D"> 4<span style="font-size:.65rem;color:var(--gray-500);display:block;">20:00〜21:00</span></label>
+            </div>
+          </div>
+
+          <div class="period-actions">
+            <button class="bulk-btn" type="button">✅ 期間内を一括オープン</button>
+            <button class="bulk-btn danger" type="button">🚫 期間内を一括クローズ</button>
+          </div>
+          <div id="periodProgress" style="display:none;margin-top:12px;font-size:.78rem;color:var(--sky-deep);font-weight:600;text-align:center;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- アーティスト管理（デモでは非表示） -->
+    <div id="pageArtists" style="display:none">
+      <div class="panel">
+        <div class="panel-title"><span>🎤</span>登録アーティスト一覧</div>
+        <div class="artist-cards" id="artistList"></div>
+      </div>
+    </div>
+
+    <!-- 予約一覧（デモでは非表示） -->
+    <div id="pageReservations" style="display:none">
+      <div class="panel">
+        <div class="panel-title"><span>📋</span>予約一覧</div>
+        <div class="res-list" id="resList"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 予約モーダル -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <div class="modal-date" id="modalDateLabel"></div>
+          <div class="modal-date-sub" id="modalDateSub"></div>
+        </div>
+        <button class="modal-close" type="button">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="slots-title">TIME SLOTS</div>
+        <div class="slot-list" id="slotList"></div>
+
+        <!-- フォーム（デモ雛形では「btn-submit」だけ使う最低限。見た目は維持） -->
+        <div class="form-section" id="formSection">
+          <div class="step-indicator">
+            <div class="step active" id="step1"><div class="step-circle">1</div><div class="step-label">アーティスト確認</div></div>
+            <div class="step-line" id="stepLine1"></div>
+            <div class="step" id="step2"><div class="step-circle">2</div><div class="step-label">予約情報</div></div>
+            <div class="step-line" id="stepLine2"></div>
+            <div class="step" id="step3"><div class="step-circle">3</div><div class="step-label">完了</div></div>
+          </div>
+
+          <div id="step1Area">
+            <div class="two-col">
+              <div class="col-card">
+                <div class="col-card-title">🔍 登録済みの方 <span class="subtitle">電話番号 or アーティスト名で検索</span></div>
+                <input class="lookup-input" type="text" id="lookupInput" placeholder="例：090-0000-0000　or　ソラノオト">
+                <button class="btn-lookup" type="button">検索する</button>
+
+                <div class="artist-found-card" id="artistFound">
+                  <div class="artist-found-row">
+                    <div class="artist-found-icon">🎤</div>
+                    <div class="artist-found-info">
+                      <div class="artist-found-name" id="foundName"></div>
+                      <div class="artist-found-sub" id="foundSub"></div>
+                    </div>
+                    <div class="artist-found-badge" id="foundBadge">承認済み</div>
+                  </div>
+                  <button class="btn-proceed" id="btnProceed" type="button">次へ → 予約情報を入力</button>
+                </div>
+
+                <div class="artist-not-found" id="artistNotFound">
+                  ⚠️ 登録が見つかりません。右側のフォームから新規登録してください。
+                </div>
+              </div>
+
+              <div class="col-card">
+                <div class="col-card-title">✨ 初めての方 <span class="subtitle">アーティスト登録＋審査申請</span></div>
+                <div id="newArtistForm">
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>お名前 <span class="required">必須</span></label>
+                      <input type="text" id="fName" placeholder="山田 太郎">
+                    </div>
+                    <div class="form-group">
+                      <label>電話番号 <span class="required">必須</span></label>
+                      <input type="tel" id="fPhone" placeholder="090-0000-0000">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>アーティスト名 <span class="required">必須</span></label>
+                    <input type="text" id="fArtist" placeholder="例：ソラノオト">
+                  </div>
+                  <div class="form-group">
+                    <label>ジャンル <span class="optional">任意</span></label>
+                    <input type="text" id="fGenre" placeholder="例：アコースティック、ダンス">
+                  </div>
+
+                  <div class="divider"><hr><span>📱 SNS（1つ以上必須）</span><hr></div>
+                  <div class="sns-required-note">⚠️ いずれか1つ以上入力してください</div>
+                  <div class="sns-grid">
+                    <div class="sns-input-wrap" id="snsWrap_instagram">
+                      <div class="sns-prefix">📸 IG</div>
+                      <input type="text" id="fInstagram" placeholder="@username">
+                    </div>
+                    <div class="sns-input-wrap" id="snsWrap_tiktok">
+                      <div class="sns-prefix">🎵 TT</div>
+                      <input type="text" id="fTiktok" placeholder="@username or URL">
+                    </div>
+                    <div class="sns-input-wrap" id="snsWrap_youtube">
+                      <div class="sns-prefix">▶️ YT</div>
+                      <input type="text" id="fYoutube" placeholder="チャンネルURL">
+                    </div>
+                    <div class="sns-input-wrap" id="snsWrap_twitter">
+                      <div class="sns-prefix">𝕏 X</div>
+                      <input type="text" id="fTwitter" placeholder="@username">
+                    </div>
+                  </div>
+
+                  <div class="divider"><hr><span>🎬 演奏・アート動画</span><hr></div>
+                  <div class="video-or">
+                    <div class="video-option" id="videoOptionUrl">
+                      <div class="video-option-label">🔗 動画URL</div>
+                      <input type="url" id="fVideoUrl" placeholder="YouTube/TikTok URL">
+                    </div>
+                    <div class="video-option" id="videoOptionLine">
+                      <div class="video-option-label">💬 LINE IDで送る</div>
+                      <input type="text" id="fVideoLineId" placeholder="LINE ID">
+                    </div>
+                  </div>
+                  <div style="font-size:.68rem;color:var(--gray-500);margin-top:6px;line-height:1.5;">※ いずれか1つ入力（LINEの場合スタッフよりご連絡します）</div>
+
+                  <div class="divider"><hr><span>💬 LINE ID（予約確定通知用）</span><hr></div>
+                  <div class="form-group">
+                    <label>LINE ID <span class="required">必須</span></label>
+                    <input type="text" id="fLineId" placeholder="@lineID（例：@tokuyama_artist）">
+                    <div style="font-size:.68rem;color:var(--gray-500);margin-top:5px;">承認後の予約確定通知をLINEでお送りします</div>
+                  </div>
+                  <div class="form-group">
+                    <label>自己PR・備考 <span class="optional">任意</span></label>
+                    <textarea id="fNote" placeholder="活動内容・実績など"></textarea>
+                  </div>
+
+                  <button class="btn-register" type="button">✨ 審査を申請する</button>
+
+                  <div class="pending-inline" id="pendingInline">
+                    <div class="pending-inline-title">⏳ 審査申請を受け付けました！</div>
+                    <div class="pending-inline-text">スタッフが確認後、<strong>承認の旨をLINEにてご連絡</strong>します。<br>承認後に改めてご予約ください。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="step2Area" style="display:none">
+            <div class="step2-artist-card">
+              <div class="step2-icon">🎤</div>
+              <div class="step2-info">
+                <div class="step2-name" id="step2ArtistName"></div>
+                <div class="step2-sub" id="step2ArtistSub"></div>
+              </div>
+              <div class="artist-found-badge">✅ 承認済み</div>
+            </div>
+            <div class="form-group">
+              <label>備考・当日の演奏内容 <span class="optional">任意</span></label>
+              <textarea id="fReserveNote" placeholder="当日の曲目・セット内容など"></textarea>
+            </div>
+
+            <!-- ✅ デモ雛形はこのボタンだけTSで動かす（localStorageに予約保存） -->
+            <button class="btn-submit" type="button">🎵 この枠を予約確定する（DEMO）</button>
+
+            <button class="btn-back" type="button">← 戻る</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- キャンセル確認（デモでは未配線。見た目維持） -->
+  <div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-box">
+      <div class="confirm-icon">🗑️</div>
+      <div class="confirm-title" id="confirmTitle"></div>
+      <div class="confirm-text" id="confirmText"></div>
+      <div class="confirm-actions">
+        <button class="btn-no" type="button">もどる</button>
+        <button class="btn-yes" id="confirmYes" type="button">キャンセルする</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 管理者ログイン（デモでは未配線。見た目維持） -->
+  <div class="confirm-overlay" id="adminOverlay">
+    <div class="confirm-box">
+      <div class="confirm-icon" id="adminModalIcon">🔐</div>
+      <div class="confirm-title" id="adminModalTitle">管理者ログイン</div>
+      <div class="confirm-text" id="adminModalText">パスワードを入力してください</div>
+      <input
+        type="password"
+        id="adminPasswordInput"
+        placeholder="パスワード"
+        style="width:100%;border:1.5px solid var(--sky-mid);border-radius:9px;padding:10px 14px;font-size:.9rem;font-family:inherit;outline:none;margin-bottom:14px;text-align:center;letter-spacing:.2em;"
+      />
+      <div class="confirm-actions">
+        <button class="btn-no" type="button">キャンセル</button>
+        <button class="btn-yes" type="button" style="background:linear-gradient(135deg,var(--sky-deep),var(--sky));">ログイン</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">処理中...</div>
+  </div>
+
+  <!-- ✅ Vite + TS のエントリポイント -->
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
