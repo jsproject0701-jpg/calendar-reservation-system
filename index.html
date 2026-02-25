@@ -463,7 +463,14 @@ body{ overflow-x: hidden; }
           <div class="modal-date" id="modalDateLabel"></div>
           <div class="modal-date-sub" id="modalDateSub"></div>
         </div>
-        <button class="modal-close" type="button">✕</button>
+        <button
+          type="button"
+          class="modal-close"
+          aria-label="閉じる"
+          data-action="close-slots-modal"
+        >
+          ✕
+        </button>
       </div>
 
       <div class="modal-body">
