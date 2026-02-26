@@ -1187,4 +1187,14 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeSlotsModal();
 });
 
+document.addEventListener(
+  'click',
+  (e) => {
+    const t = e.target as HTMLElement | null;
+    console.log('[click]', t?.tagName, t?.className, t?.getAttribute?.('data-action'));
+    console.log('closest close?', !!t?.closest?.('[data-action="close-slots-modal"]'));
+  },
+  true // ★ captureで最優先に拾う
+);
+
 init();
