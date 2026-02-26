@@ -1124,12 +1124,51 @@ function resetDemo() {
 (Object.assign(window as any, { resetDemo }));
 
 // ============================
+// ✅ Modal Close Wiring (FIX)
+// - data-action="close-slots-modal" を押したら closeModal() する
+// - SVG / path をクリックしても拾える（closest）
+// - capture=true で最優先に拾う（他のonclickに邪魔されない）
+// ============================
+function wireModalClose() {
+  document.addEventListener(
+    'click',
+    (e) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+
+      // data-actionを拾う（button内のsvg/pathでもOK）
+      const actionEl = t.closest<HTMLElement>('[data-action]');
+      const action = actionEl?.dataset.action;
+
+      // ✅ あなたのHTMLが close-slots-modal ならこれで閉じる
+      // （将来 close-modal に統一しても動くよう両対応）
+      if (action === 'close-slots-modal' || action === 'close-modal') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeModal();
+        return;
+      }
+
+      // 追加：confirmモーダルの閉じるが data-action で来ても対応したい場合はここに増やせる
+      // if (action === 'close-confirm') closeConfirm();
+    },
+    true
+  );
+
+  // Escでも閉じたいなら（任意・便利）
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      // 開いてる時だけ閉じる
+      const open = el<HTMLDivElement>('modalOverlay').classList.contains('show');
+      if (open) closeModal();
+    }
+  });
+}
+
+// ============================
 // Init
 // ============================
 function init() {
-  // attach some missing inline handlers that are used in HTML ids
-  // (HTML already calls these names; we exposed them via window.)
-
   // date inputs max
   const maxKey = limitMaxKey();
   el<HTMLInputElement>('periodStart').max = maxKey;
@@ -1144,57 +1183,10 @@ function init() {
   renderCalendar();
   switchTab('calendar');
 
+  wireModalClose(); // ✅ ここで閉じる配線を確定
+
   // small hint for demo mode
   showToast('🧪 デモモード：予約/登録はこのブラウザ内だけに保存されます', 'pending');
 }
-
-// 例: 要素ID/クラスはあなたのHTMLに合わせて調整してOK
-const slotsModal = document.getElementById('slots-modal') as HTMLElement | null;
-const slotsModalOverlay = document.getElementById('slots-modal-overlay') as HTMLElement | null;
-
-function closeSlotsModal() {
-  // モーダルを隠す（あなたの実装に合わせてどれか）
-  slotsModal?.classList.remove('is-open');
-  slotsModalOverlay?.classList.remove('is-open');
-
-  // もし style で出してるなら：
-  // slotsModal && (slotsModal.style.display = 'none');
-  // slotsModalOverlay && (slotsModalOverlay.style.display = 'none');
-
-  // bodyスクロールロックしてるなら解除
-  document.body.classList.remove('modal-open');
-}
-
-// ✅ イベント委譲：svg/path をクリックしても拾えるので最強
-document.addEventListener('click', (e) => {
-  const t = e.target as HTMLElement;
-
-  // ❌ボタン
-  if (t.closest('[data-action="close-slots-modal"]')) {
-    closeSlotsModal();
-    return;
-  }
-
-  // 背景クリックでも閉じたいなら（任意）
-  if (slotsModalOverlay && t === slotsModalOverlay) {
-    closeSlotsModal();
-    return;
-  }
-});
-
-// Escで閉じたいなら（任意）
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeSlotsModal();
-});
-
-document.addEventListener(
-  'click',
-  (e) => {
-    const t = e.target as HTMLElement | null;
-    console.log('[click]', t?.tagName, t?.className, t?.getAttribute?.('data-action'));
-    console.log('closest close?', !!t?.closest?.('[data-action="close-slots-modal"]'));
-  },
-  true // ★ captureで最優先に拾う
-);
 
 init();
